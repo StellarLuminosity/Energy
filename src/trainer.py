@@ -276,7 +276,6 @@ class Trainer(ABC):
                 next_token_loss = torch.stack(next_token_loss).sum()
                 kl_loss = torch.stack(kl_loss).sum()
                 valid_count = torch.stack(valid_count).sum()
-            # TODO: add averaging here (tr_step_loss, next_toke_loss, kl_loss / valid_count)
             (tr_step_loss / self.gas).backward()
             self.model.set_requires_gradient_sync(True)
         else:
@@ -292,7 +291,6 @@ class Trainer(ABC):
                 kl_loss = torch.stack(kl_loss).sum()
                 valid_count = torch.stack(valid_count).sum()
 
-            # TODO: average loss here (kl_loss / valid_count)
             # average all lossses (training)
             (tr_step_loss / self.gas).backward()
             grad_norm = torch.nn.utils.clip_grad_norm_(self.model.parameters(), max_norm=config.max_grad_norm)
@@ -315,7 +313,6 @@ class Trainer(ABC):
             and self.rank == 0
             and (self.tr_step % getattr(config, "logging_steps", 1) == 0)
         ):
-        # TODO: add averaging
             self.logger.log(
                 function="train_step",
                 round_num=self.round_num,
@@ -385,7 +382,7 @@ class Trainer(ABC):
                         control=None, 
                         loss=batch_loss
                     )
-                # TODO: Use only for quick tests
+                # Use only for quick tests
                 # if counter == 10:
                 #     break
                 # counter += 1

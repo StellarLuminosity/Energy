@@ -96,8 +96,7 @@ def train_single_round(start_round, round_num, dataset, output_path, logger, wan
                 param_dtype=torch.bfloat16,  # 16-bit precision for model parameters
                 reduce_dtype=torch.float32,  # 32-bit precision for reduction operations
             )
-        # TODO: Track the ids for the loss and the loss values, then filter the dataset by ids and the highest loss
-        
+
         # ----------------------------------
         # Shard Model
         # ----------------------------------
@@ -181,8 +180,6 @@ def train_single_round(start_round, round_num, dataset, output_path, logger, wan
             dataset['train'],
             dataset['test'],
         )
-
-        # TODO: ADD WANDB LOGGING
         
         if hasattr(train_dataloader, "sampler") and hasattr(train_dataloader.sampler, "set_epoch"):
             train_dataloader.sampler.set_epoch(epoch_num)
@@ -198,17 +195,17 @@ def train_single_round(start_round, round_num, dataset, output_path, logger, wan
         # ----------------------------------
         # Training Loop
         # ---------------------------------- 
-        # TODO: Toggle for quick tests
+        # Toggle for quick tests
         count = 0
         for step_idx in tqdm(range(len(train_dataloader)), disable=rank != 0, file=sys.stdout, mininterval=1.0, ncols=100):
-            if args.explicit_prefetching: # TODO: is this correct? 
+            if args.explicit_prefetching:
                 trainer.model.unshard()
             batch = next(train_dl_iterator)
             trainer.step(batch, eval_dataloader, epoch_num)
             # if trainer.should_stop: 
             #     main_print("Early stopping triggered")
             #     break
-            # TODO: Toggle for quick tests
+            # Toggle for quick tests
             # if count == 10:
             #     break
             # count += 1

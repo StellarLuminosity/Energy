@@ -83,11 +83,24 @@ def main(args):
             teacher_short = config.teacher_model_name.split('/')[-1]
             run_name = f"{student_short}_from_{teacher_short}_{timestamp}"
         
+    # TODO: structure the run into stages; Separate accounting for
+        # Teacher forward / label generation (if you do on-the-fly logits or synthetic outputs)
+        # Student training (KD + CE)
+        # Evaluation (benchmarks)
+        # Optional: data preprocessing / tokenization (if non-trivial)
+    # TODO: log tokens and stages - i.e inside the training loop tokens_processed and steps_completed
+    # At the end of each run, log:
+        # tokens_processed_total,
+        # tokens_per_second,
+        # joules_per_token = total_joules / tokens_processed_total
+    # TODO: track eval energy separately
+
         # Initialize wandb
         wandb.init(
             project=config.wandb_project,
             name=run_name,
             config={
+                
                 "teacher_model": config.teacher_model_name,
                 "student_model": config.student_model_name,
                 "num_epochs": config.num_epochs,
