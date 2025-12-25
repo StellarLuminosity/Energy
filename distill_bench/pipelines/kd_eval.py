@@ -6,9 +6,10 @@ import torch.nn.functional as F
 from tqdm.auto import tqdm
 from transformers import AutoModelForCausalLM
 import torch.distributed.checkpoint as dcp
-from simple_checkpoint import AppState
-from simple_utils import prepare_dataset, get_dataset, fix_seed
-from simple_config import config
+
+from configs.simple_config import config
+from distill_bench.core.checkpoint import AppState
+from distill_bench.core.utils import prepare_dataset, get_dataset, fix_seed
 
 
 def load_distributed_checkpoint(checkpoint_dir, model):

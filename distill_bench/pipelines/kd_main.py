@@ -10,10 +10,11 @@ from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy
 from torch.distributed.checkpoint.state_dict import get_state_dict, StateDictOptions
 from tqdm.auto import tqdm
 from typing import Any
-from simple_config import config
-from simple_trainer import Trainer
-from simple_utils import prepare_dataset, get_dataset, is_main_process, main_print, fix_seed
-from simple_checkpoint import SimpleCheckpointer
+
+from configs.simple_config import config
+from distill_bench.core.trainer import Trainer
+from distill_bench.core.utils import prepare_dataset, get_dataset, is_main_process, main_print, fix_seed
+from distill_bench.core.checkpoint import SimpleCheckpointer
 
 try:
     import wandb

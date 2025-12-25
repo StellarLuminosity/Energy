@@ -9,7 +9,7 @@ from datasets import load_from_disk
 import random
 import numpy as np
 
-from simple_config import config
+from configs.simple_config import config
 
 
 # ==================================================

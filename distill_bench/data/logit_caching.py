@@ -6,10 +6,11 @@ import shutil
 import torch.nn.functional as F
 from datasets import Dataset, DatasetDict, load_from_disk, concatenate_datasets
 from transformers import AutoModelForCausalLM, AutoTokenizer
-from simple_config import config
-from simple_utils import get_dataset, prepare_dataset
 from tqdm import tqdm
 import math
+
+from configs.simple_config import config
+from distill_bench.core.utils import get_dataset, prepare_dataset
 
 
 def get_teacher_logprobs():

@@ -1,11 +1,11 @@
 import torch
 import datasets
 from tqdm import tqdm
-from transformers import AutoModelForCausalLM
-import config
+from transformers import AutoModelForCausalLM, AutoTokenizer
 from torch.utils.data import DataLoader
-from transformers import AutoTokenizer
 import os
+
+from configs.simple_config import config
 
 dataset = datasets.load_from_disk(config.dataset_path)
 dataloader = DataLoader(dataset["train"].select(range(100)), batch_size=2)

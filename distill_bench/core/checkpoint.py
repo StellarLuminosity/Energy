@@ -9,7 +9,7 @@ import torch.distributed as dist
 import torch.distributed.checkpoint as dcp
 from torch.distributed.checkpoint.state_dict import get_state_dict, set_state_dict
 from torch.distributed.checkpoint.stateful import Stateful
-from simple_utils import main_print, is_main_process
+from distill_bench.core.utils import main_print, is_main_process
 
 # How it works:
 # Each rank saves only its shard to separate files in the directory.

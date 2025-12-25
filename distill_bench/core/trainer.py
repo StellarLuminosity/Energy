@@ -5,8 +5,8 @@ from tqdm.auto import tqdm
 import pdb
 import sys
 
-from simple_config import config
-from simple_utils import is_main_process, main_print
+from configs.simple_config import config
+from distill_bench.core.utils import is_main_process, main_print
 
 try:
     import wandb

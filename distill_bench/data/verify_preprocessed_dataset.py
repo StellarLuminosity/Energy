@@ -15,8 +15,9 @@ Run this AFTER preprocessing to verify everything is correct before training.
 import torch
 import datasets
 from transformers import AutoTokenizer
-from simple_config import config
 import random
+
+from configs.simple_config import config
 
 print("=" * 80)
 print("INFINITY-INSTRUCT PREPROCESSED DATASET VERIFICATION")

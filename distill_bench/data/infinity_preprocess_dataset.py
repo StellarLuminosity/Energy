@@ -4,8 +4,9 @@ import os
 import shutil
 import datasets
 from transformers import AutoTokenizer
-from simple_config import config
 import torch.nn.functional as F
+
+from configs.simple_config import config
 
 # ----------------------------------
 # Helper Functions
