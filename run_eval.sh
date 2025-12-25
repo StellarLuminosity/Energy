@@ -20,5 +20,5 @@ fi
 cd /home/klambert/projects/aip-craffel/klambert/SLMensembles || exit 1
 
 # Run evaluation
-python src_simple/simple_eval.py "$@"
+python -m distill_bench.pipelines.kd_eval "$@"
 

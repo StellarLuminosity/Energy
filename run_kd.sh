@@ -48,5 +48,5 @@ source /home/klambert/projects/aip-craffel/shared/slm_ensemble/prj/bin/activate
 torchrun \
     --nproc_per_node=$WORLD_SIZE \
     --master_port=29500 \
-    src_simple/main_simple.py \
+    -m distill_bench.pipelines.kd_main \
     --mixed-precision
