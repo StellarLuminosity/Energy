@@ -9,31 +9,10 @@ from typing import Optional, Dict, List, Any
 from pathlib import Path
 
 import torch
-
-# CodeCarbon
-try:
-    from codecarbon import EmissionsTracker, OfflineEmissionsTracker
-    CODECARBON_AVAILABLE = True
-except ImportError:
-    CODECARBON_AVAILABLE = False
-    print("Warning: codecarbon not available. Install with: pip install codecarbon")
-
-# experiment-impact-tracker
-try:
-    from experiment_impact_tracker.compute_tracker import ImpactTracker
-    from experiment_impact_tracker.data_interface import DataInterface
-    IMPACT_TRACKER_AVAILABLE = True
-except ImportError:
-    IMPACT_TRACKER_AVAILABLE = False
-    print("Warning: experiment-impact-tracker not available. Install with: pip install experiment-impact-tracker")
-
-# pynvml for direct GPU polling
-try:
-    import pynvml
-    PYNVML_AVAILABLE = True
-except ImportError:
-    PYNVML_AVAILABLE = False
-    print("Warning: pynvml not available. Install with: pip install pynvml")
+from codecarbon import EmissionsTracker, OfflineEmissionsTracker
+from experiment_impact_tracker.compute_tracker import ImpactTracker
+from experiment_impact_tracker.data_interface import DataInterface
+import pynvml
 
 
 @dataclass
@@ -110,9 +89,6 @@ class NVMLPoller:
         
     def start(self):
         """Initialize NVML and start polling thread."""
-        if not PYNVML_AVAILABLE:
-            return
-            
         try:
             pynvml.nvmlInit()
             self._initialized = True
@@ -252,31 +228,30 @@ class EnergyTracker:
         self.stages[stage_name] = stage_metrics
         
         # Start CodeCarbon
-        if CODECARBON_AVAILABLE:
-            try:
-                codecarbon_dir = self.energy_dir / "codecarbon" / stage_name
-                codecarbon_dir.mkdir(parents=True, exist_ok=True)
-                
-                if self.offline_mode:
-                    self._codecarbon_tracker = OfflineEmissionsTracker(
-                        project_name=f"{self.experiment_name}_{stage_name}",
-                        output_dir=str(codecarbon_dir),
-                        country_iso_code=self.country_iso_code,
-                        log_level="warning",
-                    )
-                else:
-                    self._codecarbon_tracker = EmissionsTracker(
-                        project_name=f"{self.experiment_name}_{stage_name}",
-                        output_dir=str(codecarbon_dir),
-                        log_level="warning",
-                    )
-                self._codecarbon_tracker.start()
-            except Exception as e:
-                print(f"Warning: CodeCarbon start failed: {e}")
-                self._codecarbon_tracker = None
+        try:
+            codecarbon_dir = self.energy_dir / "codecarbon" / stage_name
+            codecarbon_dir.mkdir(parents=True, exist_ok=True)
+            
+            if self.offline_mode:
+                self._codecarbon_tracker = OfflineEmissionsTracker(
+                    project_name=f"{self.experiment_name}_{stage_name}",
+                    output_dir=str(codecarbon_dir),
+                    country_iso_code=self.country_iso_code,
+                    log_level="warning",
+                )
+            else:
+                self._codecarbon_tracker = EmissionsTracker(
+                    project_name=f"{self.experiment_name}_{stage_name}",
+                    output_dir=str(codecarbon_dir),
+                    log_level="warning",
+                )
+            self._codecarbon_tracker.start()
+        except Exception as e:
+            print(f"Warning: CodeCarbon start failed: {e}")
+            self._codecarbon_tracker = None
         
         # Start experiment-impact-tracker
-        if IMPACT_TRACKER_AVAILABLE and self.track_cpu:
+        if self.track_cpu:
             try:
                 self._impact_tracker_dir = self.energy_dir / "impact_tracker" / stage_name
                 self._impact_tracker_dir.mkdir(parents=True, exist_ok=True)
@@ -287,10 +262,9 @@ class EnergyTracker:
                 self._impact_tracker = None
         
         # Start NVML polling
-        if PYNVML_AVAILABLE:
-            self._nvml_poller = NVMLPoller(poll_interval_ms=self.nvml_poll_interval_ms)
-            self._nvml_poller.start()
-            self._stage_start_readings = []
+        self._nvml_poller = NVMLPoller(poll_interval_ms=self.nvml_poll_interval_ms)
+        self._nvml_poller.start()
+        self._stage_start_readings = []
         
         # Sync GPU before timing
         if torch.cuda.is_available():
@@ -465,22 +439,3 @@ class EnergyTracker:
                 self._codecarbon_tracker.stop()
             except Exception:
                 pass
-
-
-# Convenience function for quick energy measurement
-def measure_energy(func, output_dir: str = "./energy_logs", stage_name: str = "default"):
-    """Decorator/wrapper to measure energy of a function."""
-    def wrapper(*args, **kwargs):
-        tracker = EnergyTracker(output_dir)
-        tracker.start_stage(stage_name)
-        try:
-            result = func(*args, **kwargs)
-            tokens = kwargs.get('tokens_processed', 0)
-            tracker.end_stage(tokens_processed=tokens)
-            tracker.save_summary()
-            return result
-        except Exception as e:
-            tracker.end_stage()
-            raise e
-    return wrapper
-
