@@ -1,0 +1,54 @@
+# Preference Distillation (DPO): Teacher as Judge → Student Policy
+# Teacher judges preference pairs, student optimized with DPO
+
+# Pipeline type
+pipeline: "dpo"
+
+# Experiment identification
+experiment:
+  name: "dpo_olmo2_7b_to_1b"
+  description: "Preference distillation: 7B judge labels pairs, 1B learns via DPO"
+
+# Models
+model:
+  # Reference model (frozen) - typically the base student or SFT'd student
+  reference: "allenai/OLMo-2-0425-1B-SFT"
+  
+  # Policy model (trained) - initialized from reference
+  policy: "allenai/OLMo-2-0425-1B-SFT"
+  
+  # Judge model (for labeling preferences)
+  judge: "allenai/OLMo-2-1124-7B-SFT"
+  
+  student_vocab_size: 100352
+
+# DPO-specific settings
+dpo:
+  # DPO hyperparameters
+  beta: 0.1  # Temperature parameter for DPO loss
+  
+  # Preference dataset
+  preference_dataset: "openbmb/UltraFeedback"  # Or pre-labeled dataset
+  preference_dataset_path: "/scratch/klambert/dataset/ultrafeedback"
+  
+  # Judge labeling (if generating preferences)
+  judge_labeling:
+    enabled: true  # If false, use pre-labeled dataset
+    temperature: 0.0  # Greedy for judge (deterministic)
+    # Judge scoring method
+    scoring_method: "likelihood"  # likelihood | reward_model | rule_based
+  
+  # Candidate generation (if needed)
+  candidate_generation:
+    enabled: false  # If true, generate candidate responses first
+    num_candidates_per_prompt: 2  # chosen + rejected
+    temperature: 0.8
+
+# Output
+output:
+  output_dir: "/scratch/klambert/model_log/energy_experiments/dpo_7b_to_1b"
+
+# W&B override
+wandb:
+  run_name: "dpo_7b_to_1b_beta0.1_ultrafeedback"
+
