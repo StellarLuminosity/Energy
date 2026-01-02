@@ -175,18 +175,6 @@ def load_config(
     exp_dict = load_yaml(exp_path)
     config_dict = merge_configs(config_dict, exp_dict)
     
-    # Environment variable overrides (useful for SLURM)
-    # e.g., DISTILL_OUTPUT_DIR=/scratch/user/run1
-    if 'DISTILL_OUTPUT_DIR' in os.environ:
-        if 'output' not in config_dict:
-            config_dict['output'] = {}
-        config_dict['output']['output_dir'] = os.environ['DISTILL_OUTPUT_DIR']
-    
-    if 'DISTILL_WANDB_ENTITY' in os.environ:
-        if 'wandb' not in config_dict:
-            config_dict['wandb'] = {}
-        config_dict['wandb']['entity'] = os.environ['DISTILL_WANDB_ENTITY']
-    
     return Config(config_dict)
 
 

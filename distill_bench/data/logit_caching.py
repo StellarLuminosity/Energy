@@ -9,8 +9,11 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from tqdm import tqdm
 import math
 
-from configs.simple_config import config
+from distill_bench.core.config_loader import load_config
 from distill_bench.core.utils import get_dataset, prepare_dataset
+
+# Load config from environment variable or default
+config = load_config(os.environ.get('DISTILL_CONFIG', 'configs/experiments/kd_7b_to_1b.yaml'))
 
 
 def get_teacher_logprobs():
@@ -44,6 +47,7 @@ def build_teacher_logprobs_dataset():
 
 
 def cache_teacher_logprobs():
+    """Cache teacher model logprobs for knowledge distillation."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
     tokenizer = AutoTokenizer.from_pretrained(config.tokenizer_name)
@@ -54,8 +58,8 @@ def cache_teacher_logprobs():
     teacher_model.requires_grad_(False)
     print(f"✓ Teacher model loaded on {device}")
 
-    dataset = get_dataset()
-    train_dataloader, test_dataloader = prepare_dataset(dataset["train"], dataset["test"])
+    dataset = get_dataset(config)
+    train_dataloader, test_dataloader = prepare_dataset(dataset["train"], dataset["test"], config)
 
     print("\n--> Generating Teacher Logits")
     for split, dataloader in [("train", train_dataloader), ("test", test_dataloader)]:
@@ -111,6 +115,7 @@ def cache_teacher_logprobs():
     print("✓ Logits saved. Now building full dataset...")
     build_teacher_logprobs_dataset()
     print("✓ All teacher logprobs cached.")
+
 
 if __name__ == "__main__":
     cache_teacher_logprobs()

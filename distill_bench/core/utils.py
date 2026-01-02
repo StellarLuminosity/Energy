@@ -9,8 +9,6 @@ from datasets import load_from_disk
 import random
 import numpy as np
 
-from configs.simple_config import config
-
 
 # ==================================================
 # Random Seed Utilities
@@ -129,13 +127,23 @@ class CustomPadCollator:
 # ==================================================
 # Dataset Loading
 # ==================================================
-def get_dataset():
-    """Load dataset."""
+def get_dataset(config):
+    """Load dataset.
+    
+    Args:
+        config: Config object with dataset_path
+    """
     return datasets.load_from_disk(config.dataset_path)
 
 
-def prepare_dataset(train_ds, eval_ds):
-    """Prepare DataLoaders with DistributedSampler."""
+def prepare_dataset(train_ds, eval_ds, config):
+    """Prepare DataLoaders with DistributedSampler.
+    
+    Args:
+        train_ds: Training dataset
+        eval_ds: Evaluation dataset
+        config: Config object with batch_size, eval_batch_size, seed
+    """
     custom_collator = CustomPadCollator(1024, pad_token_id=100277) # pad_token_id for OLmo2
 
     if dist.is_initialized():

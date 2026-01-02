@@ -17,16 +17,13 @@ Usage:
 
 import torch
 import datasets
+import argparse
 from transformers import AutoTokenizer
 import random
 import numpy as np
 import statistics
 
 from distill_bench.core.config_loader import load_config
-import os
-
-# Load config from environment variable or default
-config = load_config(os.environ.get('DISTILL_CONFIG', 'configs/experiments/sft_7b_to_1b.yaml'))
 
 
 def inspect_sample(sample, sample_idx, tokenizer):
@@ -170,8 +167,12 @@ def inspect_sample(sample, sample_idx, tokenizer):
     return checks_passed == checks_total
 
 
-def main():
-    """Main verification function."""
+def main(config):
+    """Main verification function.
+    
+    Args:
+        config: Config object with dataset and tokenizer settings
+    """
     print("=" * 80)
     print("PREPROCESSED DATASET VERIFICATION")
     print("=" * 80)
@@ -411,5 +412,18 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    parser = argparse.ArgumentParser(description="Verify preprocessed dataset")
+    parser.add_argument(
+        "--config",
+        type=str,
+        required=True,
+        help="Path to experiment config YAML file"
+    )
+    args = parser.parse_args()
+    
+    # Load config
+    config = load_config(args.config)
+    
+    # Run verification
+    main(config)
 

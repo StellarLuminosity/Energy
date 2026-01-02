@@ -1,19 +1,12 @@
 import torch
+import wandb
 import torch.nn.functional as F
 import torch.distributed as dist
 from tqdm.auto import tqdm
 import pdb
 import sys
 
-from configs.simple_config import config
 from distill_bench.core.utils import is_main_process, main_print
-
-try:
-    import wandb
-    WANDB_AVAILABLE = True
-except ImportError:
-    WANDB_AVAILABLE = False
-
 
 # ==================================================
 # Helper Functions
@@ -50,12 +43,14 @@ class Trainer:
         student_model,
         optimizer,
         lr_scheduler,
+        config,
         checkpointer=None,
     ):
         self.student_model = student_model
         self.model = student_model  # For compatibility with checkpoint saving
         self.optimizer = optimizer
         self.lr_scheduler = lr_scheduler
+        self.config = config
         self.checkpointer = checkpointer
         self.global_step = 0
         self.epoch = 0
@@ -148,7 +143,7 @@ class Trainer:
             masked_teacher_indices = shift_teacher_logprob_indices[mask]  # [valid_tokens, K]
             
             # Compute student log probabilities with temperature
-            student_log_probs = F.log_softmax(masked_student_logits / config.kl_temperature, dim=-1)
+            student_log_probs = F.log_softmax(masked_student_logits / self.config.kl_temperature, dim=-1)
             
             # Gather student log probs at teacher's cached indices
             student_selected_log_probs = student_log_probs.gather(dim=-1, index=masked_teacher_indices)
@@ -162,10 +157,10 @@ class Trainer:
                 reduction='sum'
             )
             
-            kl_loss = kl_loss * (config.kl_temperature ** 2)
+            kl_loss = kl_loss * (self.config.kl_temperature ** 2)
         
         # ------ Combine Losses ------
-        total_loss = config.alpha * ce_loss + (1 - config.alpha) * kl_loss
+        total_loss = self.config.alpha * ce_loss + (1 - self.config.alpha) * kl_loss
         
         return total_loss, valid_count, ce_loss, kl_loss
     
@@ -225,7 +220,7 @@ class Trainer:
             # Gradient clipping and optimizer step
             grad_norm = torch.nn.utils.clip_grad_norm_(
                 self.model.parameters(), 
-                max_norm=config.max_grad_norm
+                max_norm=self.config.max_grad_norm
             )
             
             self.optimizer.step()

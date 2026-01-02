@@ -7,9 +7,12 @@ from tqdm.auto import tqdm
 from transformers import AutoModelForCausalLM
 import torch.distributed.checkpoint as dcp
 
-from configs.simple_config import config
+from distill_bench.core.config_loader import load_config
 from distill_bench.core.checkpoint import AppState
 from distill_bench.core.utils import prepare_dataset, get_dataset, fix_seed
+
+# Load config
+config = load_config('configs/experiments/kd_7b_to_1b.yaml')
 
 
 def load_distributed_checkpoint(checkpoint_dir, model):
@@ -39,18 +42,27 @@ def load_distributed_checkpoint(checkpoint_dir, model):
     return app_state.epoch, app_state.global_step, app_state.loss
 
 
-def load_model(model_path=None, model_name=None, device='cuda'):
+def load_model(model_path=None, model_name=None, student_model_name=None, device='cuda'):
     """Load model from checkpoint, distributed checkpoint, or HuggingFace.
     
     Supports three formats:
     1. Single .pt file: final_model/model.pt
     2. Distributed checkpoint directory: checkpoint_epoch0_step5000/
     3. HuggingFace model name: allenai/OLMo-2-0425-1B-SFT
+    
+    Args:
+        model_path: Path to checkpoint file or directory
+        model_name: HuggingFace model name
+        student_model_name: Student model name for initializing structure (required for checkpoints)
+        device: Device to load model to
     """
     if model_path:
+        if student_model_name is None:
+            raise ValueError("student_model_name required when loading from checkpoint")
+        
         # Initialize model structure first
         model = AutoModelForCausalLM.from_pretrained(
-            config.student_model_name,
+            student_model_name,
             torch_dtype=torch.bfloat16,
         )
         
@@ -163,12 +175,13 @@ def eval_main(args):
     
     # Load dataset
     print("Loading test dataset...")
-    dataset = get_dataset()
+    dataset = get_dataset(config)
     
     # Create dataloader
     _, eval_dataloader = prepare_dataset(
         dataset['train'],
         dataset['test'],
+        config,
     )
     
     # Load model
@@ -176,6 +189,7 @@ def eval_main(args):
     model = load_model(
         model_path=args.model_path,
         model_name=args.model_name,
+        student_model_name=config.student_model_name if hasattr(config, 'student_model_name') else None,
         device=device
     )
     
@@ -206,18 +220,13 @@ if __name__ == "__main__":
         epilog="""
 Examples:
   # Distributed checkpoint (directory):
-  python simple_eval.py --model_path /scratch/klambert/model_log/singular/checkpoints/checkpoint_epoch0_step5000
+  DISTILL_CONFIG=configs/experiments/kd_7b_to_1b.yaml python kd_eval.py --model_path /scratch/klambert/model_log/singular/checkpoints/checkpoint_epoch0_step5000
   
   # Final model (.pt file):
-  python simple_eval.py --model_path /scratch/klambert/model_log/singular/final_model/model.pt
+  DISTILL_CONFIG=configs/experiments/kd_7b_to_1b.yaml python kd_eval.py --model_path /scratch/klambert/model_log/singular/final_model/model.pt
   
   # Student baseline:
-  python simple_eval.py --model_name allenai/OLMo-2-0425-1B-SFT
-  
-  # Teacher model:
-  python simple_eval.py --model_name allenai/OLMo-2-1124-7B-SFT
-
-Recommended: Use ./run_eval.sh instead for easier usage
+  DISTILL_CONFIG=configs/experiments/kd_7b_to_1b.yaml python kd_eval.py --model_name allenai/OLMo-2-0425-1B-SFT
         """
     )
     

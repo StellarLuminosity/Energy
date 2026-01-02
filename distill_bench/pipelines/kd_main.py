@@ -12,12 +12,15 @@ from torch.distributed.checkpoint.state_dict import get_state_dict, StateDictOpt
 from tqdm.auto import tqdm
 from typing import Any
 
-from configs.simple_config import config
+from distill_bench.core.config_loader import load_config
 from distill_bench.core.trainer import Trainer
 from distill_bench.core.utils import prepare_dataset, get_dataset, is_main_process, main_print, fix_seed
 from distill_bench.core.checkpoint import SimpleCheckpointer
 from distill_bench.core.energy_logger import EnergyTracker
 from distill_bench.core.environment import save_environment, collect_environment
+
+# Load config
+config = load_config('configs/experiments/kd_7b_to_1b.yaml')
 
 
 # Watch GPU usage in real-time
@@ -45,7 +48,11 @@ from distill_bench.core.environment import save_environment, collect_environment
 def main(args):
     """
     Simplified single teacher-student distillation pipeline.
+    
+    Args:
+        args: Argparse namespace with mixed_precision flag
     """
+    
     # ----------------------------------
     # DDP Setup and Initialization
     # ----------------------------------
@@ -141,10 +148,11 @@ def main(args):
     # Dataset Loading
     # ----------------------------------
     main_print("Loading dataset...")
-    dataset = get_dataset()
+    dataset = get_dataset(config)
     train_dataloader, eval_dataloader = prepare_dataset(
         dataset['train'],
         dataset['test'],
+        config,
     )
     
     # ----------------------------------
@@ -212,6 +220,7 @@ def main(args):
         optimizer=optimizer,
         lr_scheduler=lr_scheduler,
         checkpointer=checkpointer,
+        config=config,
     )
     
     # Sync trainer state with loaded checkpoint
