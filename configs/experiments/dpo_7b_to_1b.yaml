@@ -11,8 +11,8 @@ experiment:
 
 # Models
 model:
-  # Reference model (frozen) - typically the base student or SFT'd student
-  reference: "allenai/OLMo-2-0425-1B-SFT"
+  # Reference model
+  reference: "allenai/OLMo-2-0425-7B-SFT"
   
   # Policy model (trained) - initialized from reference
   policy: "allenai/OLMo-2-0425-1B-SFT"
