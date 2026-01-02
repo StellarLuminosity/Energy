@@ -5,52 +5,18 @@ import torch
 import torch.nn.functional as F
 from tqdm.auto import tqdm
 from transformers import AutoModelForCausalLM
-import torch.distributed.checkpoint as dcp
 
 from distill_bench.core.config_loader import load_config
-from distill_bench.core.checkpoint import AppState
 from distill_bench.core.utils import prepare_dataset, get_dataset, fix_seed
 from distill_bench.core.energy_logger import EnergyTracker
 from distill_bench.core.environment import save_environment
 
 
-def load_distributed_checkpoint(checkpoint_dir, model):
-    """Load a distributed checkpoint (directory format) into a model.
-    
-    This handles checkpoints saved with dcp.save() which are stored as
-    directories with multiple shard files.
-    
-    For evaluation, we load the model weights directly without using AppState.
-    """
-    
-    print(f"Loading distributed checkpoint from: {checkpoint_dir}")
-    
-    # Create a matching optimizer for loading (must match training optimizer type)
-    # Training uses AdamW, so we must use AdamW here too
-    dummy_optim = torch.optim.AdamW(model.parameters(), lr=0.001)
-    app_state = AppState(model=model, optimizer=dummy_optim, lr_scheduler=None)
-    
-    # Load using dcp.load with AppState
-    state_dict = {"app": app_state}
-    dcp.load(state_dict=state_dict, checkpoint_id=checkpoint_dir)
-    
-    # Clean up optimizer (we only needed it for loading)
-    del dummy_optim
-    
-    print(f"✓ Loaded checkpoint - Epoch: {app_state.epoch}, Step: {app_state.global_step}")
-    return app_state.epoch, app_state.global_step, app_state.loss
-
-
 def load_model(model_path=None, model_name=None, student_model_name=None, device='cuda'):
-    """Load model from checkpoint, distributed checkpoint, or HuggingFace.
-    
-    Supports three formats:
-    1. Single .pt file: final_model/model.pt
-    2. Distributed checkpoint directory: checkpoint_epoch0_step5000/
-    3. HuggingFace model name: allenai/OLMo-2-0425-1B-SFT
+    """Load model from checkpoint (.pt or HF directory) or HuggingFace hub.
     
     Args:
-        model_path: Path to checkpoint file or directory
+        model_path: Path to .pt file or HF format directory
         model_name: HuggingFace model name
         student_model_name: Student model name for initializing structure (required for checkpoints)
         device: Device to load model to
@@ -65,15 +31,14 @@ def load_model(model_path=None, model_name=None, student_model_name=None, device
             torch_dtype=torch.bfloat16,
         )
         
-        # Check if path is a directory (distributed checkpoint) or file (single .pt)
         if os.path.isdir(model_path):
-            # Distributed checkpoint (directory with shards)
-            print(f"Detected distributed checkpoint format")
-            epoch, step, loss = load_distributed_checkpoint(model_path, model)
-            print(f"Checkpoint info: Epoch {epoch}, Step {step}, Loss {loss:.4f}")
-            
+            # Treat directory as HF-format checkpoint
+            print(f"Detected directory checkpoint; loading HF format from {model_path}")
+            model = AutoModelForCausalLM.from_pretrained(
+                model_path,
+                torch_dtype=torch.bfloat16,
+            )
         elif os.path.isfile(model_path):
-            # Old format: Single .pt file
             print(f"Detected single file checkpoint format")
             print(f"Loading from: {model_path}")
             checkpoint = torch.load(model_path, map_location='cpu')
@@ -291,6 +256,5 @@ Examples:
     
     args = parser.parse_args()
     eval_main(args)
-
 
 

@@ -2,8 +2,7 @@
 Simplified utilities for distillation training.
 """
 import torch
-import torch.distributed as dist
-from torch.utils.data import DataLoader, DistributedSampler
+from torch.utils.data import DataLoader
 import datasets
 from datasets import load_from_disk
 import random
@@ -25,8 +24,8 @@ def fix_seed(seed: int):
 # Distributed Training Utilities
 # ==================================================
 def is_main_process():
-    """Check if this is the main process (rank 0)."""
-    return not dist.is_initialized() or dist.get_rank() == 0
+    """Single-process setup; always main."""
+    return True
 
 
 def main_print(*args, **kwargs):
@@ -137,7 +136,7 @@ def get_dataset(config):
 
 
 def prepare_dataset(train_ds, eval_ds, config):
-    """Prepare DataLoaders with DistributedSampler.
+    """Prepare DataLoaders (single-process).
     
     Args:
         train_ds: Training dataset
@@ -146,64 +145,21 @@ def prepare_dataset(train_ds, eval_ds, config):
     """
     custom_collator = CustomPadCollator(1024, pad_token_id=100277) # pad_token_id for OLmo2
 
-    if dist.is_initialized():
-        # Distributed training mode
-        train_sampler = DistributedSampler(
-            train_ds,
-            dist.get_world_size(),
-            dist.get_rank(),
-            shuffle=True,
-            seed=config.seed,
-            drop_last=True, 
-        )
-        test_sampler = DistributedSampler(
-            eval_ds,
-            dist.get_world_size(),
-            dist.get_rank(),
-            shuffle=False,
-            drop_last=True, 
-        )
-
-        train_dataloader = DataLoader(
-            train_ds,
-            batch_size=config.batch_size,
-            sampler=train_sampler,
-            shuffle=False,
-            collate_fn=custom_collator,
-            num_workers=0,
-            persistent_workers=False,
-            drop_last=True
-        )   
-        eval_dataloader = DataLoader(
-            eval_ds,
-            batch_size=config.eval_batch_size,
-            sampler=test_sampler,
-            shuffle=False,
-            collate_fn=custom_collator,
-            num_workers=0,
-            persistent_workers=False,
-            drop_last=True  
-        )
-
-        dist.barrier()
-    else:
-        # Standalone evaluation mode
-        train_dataloader = DataLoader(
-            train_ds,
-            batch_size=config.batch_size,
-            shuffle=True,
-            collate_fn=custom_collator,
-            num_workers=0,
-            drop_last=True
-        )   
-        eval_dataloader = DataLoader(
-            eval_ds,
-            batch_size=config.eval_batch_size,
-            shuffle=False,
-            collate_fn=custom_collator,
-            num_workers=0,
-            drop_last=False  # Don't drop last batch in eval
-        )
+    train_dataloader = DataLoader(
+        train_ds,
+        batch_size=config.batch_size,
+        shuffle=True,
+        collate_fn=custom_collator,
+        num_workers=0,
+        drop_last=True
+    )   
+    eval_dataloader = DataLoader(
+        eval_ds,
+        batch_size=config.eval_batch_size,
+        shuffle=False,
+        collate_fn=custom_collator,
+        num_workers=0,
+        drop_last=False  # Don't drop last batch in eval
+    )
 
     return train_dataloader, eval_dataloader
-

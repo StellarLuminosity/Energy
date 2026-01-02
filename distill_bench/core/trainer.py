@@ -1,8 +1,6 @@
 import torch
 import torch.nn.functional as F
-import torch.distributed as dist
 from tqdm.auto import tqdm
-import pdb
 import sys
 
 try:
@@ -17,24 +15,8 @@ from distill_bench.core.utils import is_main_process, main_print
 # Helper Functions
 # ==================================================
 def _gather(x: torch.Tensor) -> torch.Tensor:
-    """Safely gather tensors across all processes with proper device and shape handling."""
-    if not dist.is_initialized() or dist.get_world_size() == 1:
-        return x
-    
-    device = torch.cuda.current_device()
-    x = x.to(device)
-    
-    original_shape = x.shape
-    x_flat = x.flatten()
-    output_tensors = [torch.zeros_like(x_flat) for _ in range(dist.get_world_size())]
-    
-    try:
-        dist.all_gather(output_tensors, x_flat)
-        output_tensors = [t.reshape(original_shape) for t in output_tensors]
-        return torch.cat(output_tensors, dim=0)
-    except Exception as e:
-        print(f"Warning: _gather failed with error {e}, returning original tensor")
-        return x
+    """Single-process passthrough for compatibility."""
+    return x
 
 
 # ==================================================
@@ -59,7 +41,7 @@ class Trainer:
         self.checkpointer = checkpointer
         self.global_step = 0
         self.epoch = 0
-        self.rank = dist.get_rank() if dist.is_initialized() else 0
+        self.rank = 0
         self.min_eval_loss = float('inf')
         self.current_eval_loss = 0.0
         
@@ -187,13 +169,11 @@ class Trainer:
         # ------ Initialization and Cleanup ------
         # First batch warning
         if self.global_step == 0 and self.rank == 0:
-            main_print("First batch (FSDP initialization + CUDA compilation)...")
+            main_print("First batch (CUDA compilation)...")
 
         # Periodic memory cleanup
-        if self.global_step % 100 == 0 and dist.is_initialized():
-            dist.barrier()
+        if self.global_step % 100 == 0:
             torch.cuda.empty_cache()
-            dist.barrier()
         
         # ------ Compute Loss ------
         tr_step_loss, valid_count, ce_loss, kl_loss = self.compute_loss(batch)

@@ -4,7 +4,6 @@ import time
 import wandb
 import torch
 from datetime import datetime
-import torch.distributed as dist
 from transformers import AutoModelForCausalLM, AutoTokenizer, get_cosine_schedule_with_warmup
 from tqdm.auto import tqdm
 from typing import Any
@@ -51,18 +50,10 @@ def main(args):
     config = load_config(args.config)
     
     # ----------------------------------
-    # Distributed Setup (optional)
+    # Device Setup (single-process)
     # ----------------------------------
-    world_size = int(os.environ.get("WORLD_SIZE", "1"))
-    use_distributed = world_size > 1
-    if use_distributed:
-        rank = int(os.environ.get("LOCAL_RANK", 0))
-        device = torch.device(f"cuda:{rank}")
-        torch.cuda.set_device(device)
-        dist.init_process_group(backend="nccl", device_id=device)
-    else:
-        rank = 0
-        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    rank = 0
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     fix_seed(config.seed)
 
     # ----------------------------------
@@ -184,7 +175,7 @@ def main(args):
     # ----------------------------------
     # Checkpointer Setup
     # ----------------------------------
-    checkpointer = SimpleCheckpointer(output_path) if dist.is_initialized() else None
+    checkpointer = SimpleCheckpointer(output_path)
     
     # ----------------------------------
     # Resume from Checkpoint (if applicable)
@@ -275,13 +266,9 @@ def main(args):
             
             # ------ Periodic Evaluation ------
             if trainer.global_step > 0 and trainer.global_step % config.eval_steps == 0:
-                dist.barrier()  # Sync before eval
-                
                 eval_loss, should_stop = trainer.eval_step(eval_dataloader)
                 main_print(f"Step {trainer.global_step}: eval_loss = {eval_loss:.4f}")
                 eval_count += 1
-                
-                dist.barrier()  # Sync after eval
                 
                 # Check for early stopping
                 if should_stop:
@@ -327,10 +314,6 @@ def main(args):
     # ----------------------------------
     # Final Model Save
     # ----------------------------------
-    # Synchronize before final save
-    if dist.is_initialized():
-        dist.barrier()
-    
     if is_main_process():
         final_model_path = os.path.join(output_path, "final_model")
         os.makedirs(final_model_path, exist_ok=True)
@@ -339,10 +322,6 @@ def main(args):
         torch.save(student_model.state_dict(), os.path.join(final_model_path, "model.pt"))
         student_model.save_pretrained(os.path.join(final_model_path, "hf_format"))
         main_print(f"\nSaved final model to {final_model_path} (model.pt + hf_format)")
-
-    if dist.is_initialized():
-        dist.barrier()
-    
     # ----------------------------------
     # Cleanup and Finalization
     # ----------------------------------
@@ -366,10 +345,7 @@ def main(args):
     if is_main_process():
         wandb.finish()
     
-    # Clean up distributed processes
-    if dist.is_initialized():
-        dist.barrier()
-        dist.destroy_process_group()
+    # Single-process cleanup complete
 
 
 # ==================================================
