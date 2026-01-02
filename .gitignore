@@ -4,3 +4,4 @@ PLAN.md
 RESEARCH.md
 dist_plan.md
 distill_bench/pipelines/__pycache__/
+distill_bench/core/__pycache__/
