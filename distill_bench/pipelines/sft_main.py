@@ -136,8 +136,9 @@ def main(args):
         energy_tracker = EnergyTracker(
             output_dir=config.output_dir,
             experiment_name=config.experiment_name,
+            nvml_poll_interval_ms=getattr(config, 'energy_nvml_poll_ms', 500),
+            track_cpu=getattr(config, 'energy_track_cpu', True),
         )
-        energy_tracker.start()
     
     # W&B
     use_wandb = config.wandb_enabled
@@ -152,7 +153,7 @@ def main(args):
     # Load or generate synthetic dataset
     main_print("Loading/generating synthetic dataset...")
     if energy_tracker:
-        energy_tracker.start_stage("data_generation")
+        energy_tracker.start_stage("teacher_generation")
     
     synthetic_dataset = load_or_generate_synthetic_dataset(config, energy_tracker)
     
@@ -237,8 +238,11 @@ def main(args):
     main_print(f"Total tokens processed: {total_tokens_processed:,}")
     
     if energy_tracker:
-        energy_tracker.stop()
-        energy_tracker.save_summary()
+        summary_file = energy_tracker.save_summary()
+        main_print(f"Energy summary: {summary_file}")
+        
+        if use_wandb:
+            wandb.log(energy_tracker.get_wandb_metrics(prefix="energy"))
     
     if use_wandb:
         wandb.finish()

@@ -15,6 +15,8 @@ from configs.simple_config import config
 from distill_bench.core.trainer import Trainer
 from distill_bench.core.utils import prepare_dataset, get_dataset, is_main_process, main_print, fix_seed
 from distill_bench.core.checkpoint import SimpleCheckpointer
+from distill_bench.core.energy_logger import EnergyTracker
+from distill_bench.core.environment import save_environment
 
 try:
     import wandb
@@ -70,6 +72,25 @@ def main(args):
     # ----------------------------------
     output_path = config.output_dir
     os.makedirs(output_path, exist_ok=True)
+    
+    # ----------------------------------
+    # Environment Metadata
+    # ----------------------------------
+    if is_main_process():
+        save_environment(output_path, filename="environment.json")
+    
+    # ----------------------------------
+    # Energy Tracking Setup
+    # ----------------------------------
+    energy_tracker = None
+    if is_main_process() and getattr(config, 'energy_enabled', False):
+        energy_tracker = EnergyTracker(
+            output_dir=output_path,
+            experiment_name=getattr(config, 'experiment_name', 'kd_experiment'),
+            nvml_poll_interval_ms=getattr(config, 'energy_nvml_poll_ms', 500),
+            track_cpu=getattr(config, 'energy_track_cpu', True),
+        )
+        main_print("Energy tracking enabled")
     
     # ----------------------------------
     # Wandb Initialization
@@ -210,6 +231,12 @@ def main(args):
     main_print("Starting Training")
     main_print("="*50)
     
+    # Start energy tracking for training stage
+    if energy_tracker:
+        energy_tracker.start_stage("student_train")
+    
+    total_tokens_processed = 0
+    
     for epoch in range(start_epoch, config.num_epochs):
         trainer.epoch = epoch
         main_print(f"\nEpoch {epoch}/{config.num_epochs-1}")
@@ -240,6 +267,16 @@ def main(args):
             epoch_train_loss += loss
             num_train_steps += 1
             
+            # Count tokens for energy tracking (count all tokens in batch)
+            if energy_tracker and "input_ids" in batch:
+                # Count based on labels (excludes padding marked as -100)
+                if "labels" in batch:
+                    batch_tokens = (batch["labels"] != -100).sum().item()
+                else:
+                    # Fallback: count all input tokens
+                    batch_tokens = batch["input_ids"].numel()
+                total_tokens_processed += batch_tokens
+            
             # Update progress bar
             if rank == 0:
                 progress_bar.set_postfix({
@@ -250,9 +287,21 @@ def main(args):
             # ------ Periodic Evaluation ------
             if trainer.global_step > 0 and trainer.global_step % config.eval_steps == 0:
                 dist.barrier()  # Sync before eval
+                
+                # Temporarily pause training energy tracking for eval
+                if energy_tracker and energy_tracker.current_stage == "student_train":
+                    energy_tracker.end_stage(tokens_processed=total_tokens_processed)
+                    energy_tracker.start_stage("evaluation")
+                
                 eval_loss, should_stop = trainer.eval_step(eval_dataloader)
                 main_print(f"Step {trainer.global_step}: eval_loss = {eval_loss:.4f}")
                 eval_count += 1
+                
+                # Resume training energy tracking
+                if energy_tracker and energy_tracker.current_stage == "evaluation":
+                    energy_tracker.end_stage()
+                    energy_tracker.start_stage("student_train")
+                
                 dist.barrier()  # Sync after eval
                 
                 # Check for early stopping
@@ -291,6 +340,10 @@ def main(args):
         # Save Epoch Checkpoint
         # ----------------------------------
         trainer.save_checkpoint(loss=eval_loss)
+    
+    # End energy tracking for training
+    if energy_tracker and energy_tracker.current_stage:
+        energy_tracker.end_stage(tokens_processed=total_tokens_processed)
     
     # ----------------------------------
     # Final Model Save
@@ -332,6 +385,19 @@ def main(args):
     # ----------------------------------
     total_time = time.time() - overall_start_time
     main_print(f"\nTraining completed in {total_time/3600:.2f} hours")
+    main_print(f"Total tokens processed: {total_tokens_processed:,}")
+    
+    # Save energy summary
+    if energy_tracker:
+        summary_file = energy_tracker.save_summary({
+            "total_time_hours": total_time / 3600,
+            "total_tokens": total_tokens_processed,
+        })
+        main_print(f"Energy summary: {summary_file}")
+        
+        # Log to wandb
+        if use_wandb:
+            wandb.log(energy_tracker.get_wandb_metrics(prefix="energy"))
     
     # Finish wandb logging
     if is_main_process():
