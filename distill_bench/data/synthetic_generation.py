@@ -48,8 +48,8 @@ def generate_synthetic_dataset(
     # Get paths
     synthetic_path = config.get('synthetic_data.synthetic_dataset_path')
     
-    # Start energy tracking for teacher generation
-    if energy_tracker:
+    # Start energy tracking for teacher generation (single stage)
+    if energy_tracker and energy_tracker.current_stage is None:
         energy_tracker.start_stage("teacher_generation")
     
     # Load tokenizer and teacher model
@@ -168,16 +168,21 @@ def generate_synthetic_dataset(
                 generated_tokens = full_sequence[prompt_length:]
                 
                 # Create labels: mask prompt (-100), keep response
-                # Same approach as synthetic_dataset.py
                 labels = torch.full_like(full_sequence, fill_value=-100)
                 labels[prompt_length:] = full_sequence[prompt_length:]
                 
-                # Apply filtering on response length
+                # Apply filtering on response length and max length
                 filtering_config = config.get('synthetic_data.filtering', {})
                 if filtering_config.get('enabled', True):
                     min_length = filtering_config.get('min_length', 10)
+                    max_length = filtering_config.get('max_length', max_seq_len)
                     response_length = len(generated_tokens)
+                    total_length = len(full_sequence)
                     if response_length < min_length:
+                        print(f"Response length shorter than min length - skipping idx {idx}")
+                        continue
+                    if total_length > max_length:
+                        print(f"Total length (prompt + response) is greater than max length - skipping idx {idx}")
                         continue
                 
                 # Create attention mask (all 1s for valid sequence)
@@ -253,4 +258,3 @@ def load_or_generate_synthetic_dataset(
     # Generate new dataset
     print("Synthetic dataset not found, generating...")
     return generate_synthetic_dataset(config, energy_tracker)
-

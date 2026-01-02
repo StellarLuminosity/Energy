@@ -174,7 +174,7 @@ def main(args):
     
     synthetic_dataset = load_or_generate_synthetic_dataset(config, energy_tracker)
     
-    if energy_tracker:
+    if energy_tracker and energy_tracker.current_stage:
         energy_tracker.end_stage()
     
     main_print(f"Synthetic dataset: {len(synthetic_dataset['train'])} train, {len(synthetic_dataset['test'])} eval")
