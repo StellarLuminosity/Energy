@@ -183,6 +183,7 @@ def main(args):
     train_loader, eval_loader = prepare_dataset(
         synthetic_dataset['train'],
         synthetic_dataset['test'],
+        config,
     )
     
     # Load student model
