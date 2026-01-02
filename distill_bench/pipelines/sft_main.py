@@ -55,11 +55,17 @@ def train_epoch(model, train_loader, optimizer, lr_scheduler, device, epoch, con
     model.train()
     total_loss = 0.0
     num_steps = 0
+    total_tokens = 0
     
     progress_bar = tqdm(train_loader, desc=f"Training Epoch {epoch}")
     
     for step, batch in enumerate(progress_bar):
         loss = compute_sft_loss(model, batch, device)
+        
+        # Count exact non-padding tokens
+        labels = batch["labels"].to(device)
+        tokens_in_batch = (labels != -100).sum().item()
+        total_tokens += tokens_in_batch
         
         # Backward and optimize
         loss.backward()
@@ -89,7 +95,7 @@ def train_epoch(model, train_loader, optimizer, lr_scheduler, device, epoch, con
             break
     
     avg_loss = total_loss / len(train_loader) if len(train_loader) > 0 else 0.0
-    return avg_loss, num_steps
+    return avg_loss, num_steps, total_tokens
 
 
 def eval_model(model, eval_loader, device):
@@ -186,33 +192,37 @@ def main(args):
     if energy_tracker:
         energy_tracker.start_stage("student_train")
     
+    total_tokens_processed = 0
+    
     for epoch in range(config.num_epochs):
         main_print(f"\nEpoch {epoch}/{config.num_epochs-1}")
         
         # Train
-        train_loss, num_steps = train_epoch(
+        train_loss, num_steps, epoch_tokens = train_epoch(
             model, train_loader, optimizer, lr_scheduler,
             device, epoch, config, use_wandb
         )
+        
+        total_tokens_processed += epoch_tokens
         
         # Evaluate
         eval_loss = eval_model(model, eval_loader, device)
         
         main_print(f"Epoch {epoch} - Train Loss: {train_loss:.4f}, Eval Loss: {eval_loss:.4f}")
+        main_print(f"Tokens processed this epoch: {epoch_tokens:,}, Total: {total_tokens_processed:,}")
         
         if use_wandb:
             wandb.log({
                 "eval/loss": eval_loss,
                 "eval/epoch": epoch,
+                "train/total_tokens": total_tokens_processed,
             }, step=num_steps)
         
         if config.debug_mode:
             break
     
     if energy_tracker:
-        # Approximate tokens processed (batch_size * seq_len * steps)
-        tokens_processed = config.batch_size * 1024 * num_steps * config.gradient_accumulation_steps
-        energy_tracker.end_stage(tokens_processed=tokens_processed)
+        energy_tracker.end_stage(tokens_processed=total_tokens_processed)
     
     # Save final model
     main_print("\nSaving final model...")
@@ -224,6 +234,7 @@ def main(args):
     # Finalize
     total_time = time.time() - start_time
     main_print(f"\nTraining completed in {total_time/3600:.2f} hours")
+    main_print(f"Total tokens processed: {total_tokens_processed:,}")
     
     if energy_tracker:
         energy_tracker.stop()
