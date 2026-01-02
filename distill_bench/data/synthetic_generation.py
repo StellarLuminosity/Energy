@@ -85,21 +85,53 @@ def generate_synthetic_dataset(
     with torch.no_grad():
         for idx, example in enumerate(tqdm(prompt_dataset, desc="Generating synthetic data")):
             try:
-                # Format prompt using chat template
-                messages = example.get("messages", [])
+                # Determine prompt field to use
+                if prompt_field == 'auto':
+                    # Auto-detect: prefer 'messages', fallback to 'prompt'
+                    if 'messages' in example and example['messages']:
+                        use_messages = True
+                        use_prompt = False
+                    elif 'prompt' in example and example['prompt']:
+                        use_messages = False
+                        use_prompt = True
+                    else:
+                        continue  # No valid field found
+                elif prompt_field == 'messages':
+                    use_messages = True
+                    use_prompt = False
+                else:  # prompt_field == 'prompt'
+                    use_messages = False
+                    use_prompt = True
                 
-                # Extract user message(s) only for prompt
-                user_messages = [m for m in messages if m.get("role") == "user"]
-                if not user_messages:
+                # Extract or format prompt
+                if use_messages:
+                    # Extract user message(s) from messages field
+                    messages = example.get("messages", [])
+                    user_messages = [m for m in messages if m.get("role") == "user"]
+                    if not user_messages:
+                        continue
+                    
+                    # Apply chat template
+                    prompt_text = tokenizer.apply_chat_template(
+                        user_messages,
+                        tokenize=False,
+                        add_generation_prompt=True,
+                    )
+                elif use_prompt:
+                    # Use pre-formatted prompt field
+                    prompt_text = example.get("prompt", "")
+                    if not prompt_text:
+                        continue
+                    
+                    # Apply chat template if needed (wrap as user message)
+                    prompt_text = tokenizer.apply_chat_template(
+                        [{"role": "user", "content": prompt_text}],
+                        tokenize=False,
+                        add_generation_prompt=True,
+                    )
+                else:
+                    # No valid prompt field found
                     continue
-                
-                # Create prompt with just user messages
-                prompt_messages = user_messages
-                prompt_text = tokenizer.apply_chat_template(
-                    prompt_messages,
-                    tokenize=False,
-                    add_generation_prompt=True,
-                )
                 
                 # Tokenize prompt (no truncation - we want full prompt)
                 prompt_inputs = tokenizer(
