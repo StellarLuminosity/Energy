@@ -10,8 +10,8 @@ experiment:
 # Dataset configuration
 data:
   dataset_name: "allenai/tulu-3-sft-mixture"
-  # For KD: path to preprocessed data with teacher logits
-  dataset_path: "/scratch/klambert/dataset/logprob_cache/teacher_logprobs" # if logits are cached
+  # Default preprocessed dataset path (non-logit cache); override per pipeline as needed
+  dataset_path: "/scratch/klambert/dataset/tulu_preprocessed_clean"
   tokenizer_name: "allenai/OLMo-2-1124-7B-SFT"
   max_sequence_length: 1024
   pad_token_id: 100277  # OLMo-2 pad token
@@ -72,4 +72,3 @@ hardware:
   assert_gpu_name: null  # e.g., "NVIDIA L40S"
   assert_gpu_count: null  # e.g., 2
   assert_cpu_brand: null  # e.g., "Intel(R) Xeon(R)"
-

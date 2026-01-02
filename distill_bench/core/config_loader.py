@@ -67,6 +67,7 @@ class Config:
         distill = self._config.get('distillation', {})
         self.alpha = distill.get('alpha', 0.5)
         self.kl_temperature = distill.get('temperature', 2.0)
+        self.logprob_cache_path = distill.get('logprob_cache_path', '')
 
         # DPO-specific
         dpo = self._config.get('dpo', {})
