@@ -1,10 +1,10 @@
 """
-Preference dataset utilities for DPO training.
+Preference dataset utilities for DPO training using teacher-generated pairs only.
 
-Supports two modes:
-1) Load an existing preference dataset from disk (with `prompt`, `chosen`, `rejected`).
-2) Generate preference pairs on-the-fly with a judge model by sampling two responses
-   per prompt and selecting the higher-likelihood response as `chosen`.
+For each prompt:
+1) Teacher generates two responses with sampling.
+2) Teacher log-probs determine chosen vs rejected.
+3) Dataset is saved to disk for reuse.
 """
 
 from pathlib import Path
@@ -49,24 +49,14 @@ def _build_prompt_text(example: Dict, tokenizer: AutoTokenizer) -> Optional[str]
 
 def _load_prompt_dataset(config: Config) -> datasets.Dataset:
     """
-    Load a prompt dataset, preferring already-preprocessed on-disk data from
-    `tulu_preprocess_dataset.py`.
-
-    Priority:
-      1) dpo_preference_dataset_path (if exists on disk)
-      2) dataset_path (preprocessed tulu data with chat_text)
-      3) remote dataset by name
+    Load prompts from preprocessed Tulu-style dataset (train split).
     """
-    if config.dpo_preference_dataset_path and Path(config.dpo_preference_dataset_path).exists():
-        ds = datasets.load_from_disk(config.dpo_preference_dataset_path)
-    elif config.dataset_path and Path(config.dataset_path).exists():
+    if config.dataset_path and Path(config.dataset_path).exists():
         ds = datasets.load_from_disk(config.dataset_path)
     else:
-        ds = datasets.load_dataset(config.dpo_preference_dataset or config.dataset_name)
+        ds = datasets.load_dataset(config.dataset_name)
 
-    if isinstance(ds, datasets.DatasetDict):
-        return ds["train"]
-    return ds
+    return ds["train"] if isinstance(ds, datasets.DatasetDict) else ds
 
 
 def _sequence_logprob(
@@ -100,12 +90,7 @@ def generate_preference_dataset(
     energy_tracker: Optional[EnergyTracker] = None,
 ) -> datasets.DatasetDict:
     """
-    Generate preference pairs using a judge model.
-
-    For each prompt:
-    - Sample two responses from the judge.
-    - Compute judge log-prob for each response.
-    - Label the higher-likelihood response as chosen, the other as rejected.
+    Generate preference pairs using the teacher model (generation + labeling).
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     max_length = config.get("data.max_sequence_length", 1024)
@@ -114,18 +99,19 @@ def generate_preference_dataset(
     temperature = config.dpo_judge_temperature
     prompt_limit = config.get("dpo.max_prompts", 2000)
 
-    main_print(f"Loading judge model: {config.judge_model_name}")
-    judge_model = AutoModelForCausalLM.from_pretrained(
-        config.judge_model_name,
+    main_print(f"Loading teacher model for preference generation: {config.teacher_model_name}")
+    teacher_model = AutoModelForCausalLM.from_pretrained(
+        config.teacher_model_name,
         torch_dtype=torch.bfloat16,
     ).to(device)
-    judge_model.eval()
+    teacher_model.eval()
 
     prompt_ds = _load_prompt_dataset(config)
     if prompt_limit and len(prompt_ds) > prompt_limit:
         prompt_ds = prompt_ds.select(range(prompt_limit), seed=config.seed)
 
     pairs: List[Dict] = []
+    total_tokens = 0
 
     for idx, example in enumerate(tqdm(prompt_ds, desc="Generating preference pairs")):
         prompt_text = _build_prompt_text(example, tokenizer)
@@ -149,7 +135,7 @@ def generate_preference_dataset(
 
         for resp_seed in seeds:
             torch.manual_seed(resp_seed)
-            outputs = judge_model.generate(
+            outputs = teacher_model.generate(
                 **prompt_inputs,
                 max_new_tokens=max_new_tokens,
                 do_sample=True,
@@ -163,7 +149,11 @@ def generate_preference_dataset(
 
             attention_mask = torch.ones_like(full_sequence).unsqueeze(0).to(device)
             input_ids = full_sequence.unsqueeze(0).to(device)
-            logps.append(_sequence_logprob(judge_model, input_ids, attention_mask, prompt_len))
+            logps.append(_sequence_logprob(teacher_model, input_ids, attention_mask, prompt_len))
+
+            total_tokens += int(attention_mask.sum().item())
+            if energy_tracker:
+                energy_tracker.add_tokens(int(attention_mask.sum().item()))
 
         if len(responses) != 2 or len(logps) != 2:
             continue
@@ -186,8 +176,8 @@ def generate_preference_dataset(
                 "teacher_logp_rejected": logp_rejected,
                 "meta": {
                     "prompt_id": idx,
-                    "seed_chosen": seeds_pair[0],
-                    "seed_rejected": seeds_pair[1],
+                    "seed1": seeds_pair[0],
+                    "seed2": seeds_pair[1],
                     "temperature": temperature,
                     "top_p": top_p,
                     "max_new_tokens": max_new_tokens,
@@ -195,17 +185,17 @@ def generate_preference_dataset(
             }
         )
 
-    judge_model.to("cpu")
+    teacher_model.to("cpu")
     torch.cuda.empty_cache()
 
     dataset = datasets.Dataset.from_list(pairs)
     dataset = dataset.train_test_split(test_size=0.05, seed=config.seed)
 
-    if config.dpo_preference_dataset_path:
-        save_path = Path(config.dpo_preference_dataset_path)
-        save_path.mkdir(parents=True, exist_ok=True)
-        dataset.save_to_disk(save_path)
-        main_print(f"Saved generated preference dataset to: {save_path}")
+    save_path = config.dpo_preference_dataset_path or (Path(config.output_dir) / "preference_dataset")
+    save_path = Path(save_path)
+    save_path.mkdir(parents=True, exist_ok=True)
+    dataset.save_to_disk(save_path)
+    main_print(f"Saved generated preference dataset to: {save_path}")
 
     return dataset
 
@@ -216,27 +206,19 @@ def load_or_build_preference_dataset(
     energy_tracker: Optional[EnergyTracker] = None,
 ) -> datasets.DatasetDict:
     """
-    Load a preference dataset from disk or generate one with the judge.
-
-    Expects dataset columns: prompt, chosen, rejected.
+    Always build (or reuse cached) preference dataset from teacher generations.
     """
-    ds_path = config.dpo_preference_dataset_path
-    if ds_path and Path(ds_path).exists():
+    ds_path = config.dpo_preference_dataset_path or (Path(config.output_dir) / "preference_dataset")
+    if Path(ds_path).exists():
         main_print(f"Loading preference dataset from: {ds_path}")
         return datasets.load_from_disk(ds_path)
 
-    if config.dpo_judge_enabled:
-        if energy_tracker:
-            energy_tracker.start_stage("judge_labeling")
-        dataset = generate_preference_dataset(config, tokenizer, energy_tracker)
-        if energy_tracker:
-            energy_tracker.end_stage()
-        return dataset
-
-    raise FileNotFoundError(
-        "Preference dataset not found on disk and judge_labeling.disabled. "
-        "Provide a dataset path or enable judge_labeling."
-    )
+    if energy_tracker and energy_tracker.current_stage is None:
+        energy_tracker.start_stage("teacher_generation")
+    dataset = generate_preference_dataset(config, tokenizer, energy_tracker)
+    if energy_tracker and energy_tracker.current_stage:
+        energy_tracker.end_stage()
+    return dataset
 
 
 def _tokenize_pair(
@@ -359,4 +341,3 @@ def create_dpo_dataloaders(
         collate_fn=collate,
     )
     return train_loader, eval_loader
-

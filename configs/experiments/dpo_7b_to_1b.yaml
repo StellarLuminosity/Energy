@@ -11,13 +11,9 @@ experiment:
 
 # Models
 model:
-  # Reference model
-  reference: "allenai/OLMo-2-0425-7B-SFT"
-  
-  # Policy model (trained) - initialized from reference
+  teacher: "allenai/OLMo-2-1124-7B-SFT"   # used for generation, labeling, and reference
+  reference: "allenai/OLMo-2-1124-7B-SFT"
   policy: "allenai/OLMo-2-0425-1B-SFT"
-  
-  # Judge model (for labeling preferences)
   judge: "allenai/OLMo-2-1124-7B-SFT"
   
   student_vocab_size: 100352
@@ -26,23 +22,12 @@ model:
 dpo:
   # DPO hyperparameters
   beta: 0.1  # Temperature parameter for DPO loss
-  
-  # Preference dataset
-  preference_dataset: "openbmb/UltraFeedback"  # Or pre-labeled dataset
-  preference_dataset_path: "/scratch/klambert/dataset/ultrafeedback"
-  
-  # Judge labeling (if generating preferences)
+  # Teacher generation settings for preference pairs
   judge_labeling:
-    enabled: true  # If false, use pre-labeled dataset
-    temperature: 0.0  # Greedy for judge (deterministic)
-    # Judge scoring method
-    scoring_method: "likelihood"  # likelihood | reward_model | rule_based
-  
-  # Candidate generation (if needed)
-  candidate_generation:
-    enabled: false  # If true, generate candidate responses first
-    num_candidates_per_prompt: 2  # chosen + rejected
-    temperature: 0.8
+    temperature: 0.0  # sampling temperature for teacher generations (set >0 for stochastic)
+    top_p: 0.9
+    max_new_tokens: 256
+    scoring_method: "likelihood"
 
 # Output
 output:
@@ -51,4 +36,3 @@ output:
 # W&B override
 wandb:
   run_name: "dpo_7b_to_1b_beta0.1_ultrafeedback"
-

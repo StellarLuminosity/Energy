@@ -52,7 +52,7 @@ def main(args):
     if tokenizer.pad_token_id is None:
         tokenizer.pad_token_id = tokenizer.eos_token_id
 
-    # Preference dataset (load or generate)
+    # Preference dataset (always teacher-generated)
     preference_dataset = load_or_build_preference_dataset(config, tokenizer, energy_tracker)
     tokenized_dataset = prepare_dpo_dataset(preference_dataset, tokenizer, config)
     train_loader, eval_loader = create_dpo_dataloaders(tokenized_dataset, tokenizer, config)
@@ -64,7 +64,8 @@ def main(args):
         torch_dtype=torch.bfloat16,
     ).to(device)
 
-    main_print(f"Loading reference model: {config.reference_model_name}")
+    # Teacher acts as reference policy
+    main_print(f"Loading reference model (teacher): {config.reference_model_name}")
     reference_model = AutoModelForCausalLM.from_pretrained(
         config.reference_model_name,
         torch_dtype=torch.bfloat16,
@@ -160,4 +161,3 @@ if __name__ == "__main__":
     parser.add_argument("--config", type=str, required=True, help="Path to experiment config YAML")
     args = parser.parse_args()
     main(args)
-
