@@ -11,7 +11,7 @@ import datasets
 from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from pathlib import Path
-from typing import Dict, Any, Optional
+from typing import Optional
 
 from distill_bench.core.energy_logger import EnergyTracker
 from distill_bench.core.config_loader import Config
@@ -43,6 +43,7 @@ def generate_synthetic_dataset(
     # Get dataset config
     prompt_dataset_name = config.get('synthetic_data.prompt_dataset', config.dataset_name)
     num_samples = config.get('synthetic_data.num_samples', 50000)
+    prompt_field = config.get('synthetic_data.prompt_field', 'auto')  # 'auto', 'messages', or 'prompt'
     
     # Get paths
     synthetic_path = config.get('synthetic_data.synthetic_dataset_path')
@@ -75,9 +76,6 @@ def generate_synthetic_dataset(
         "input_ids": [],
         "attention_mask": [],
         "labels": [],
-        "id": [],
-        "prompt_text": [],
-        "response_text": [],
     }
     
     total_tokens_generated = 0
@@ -137,8 +135,6 @@ def generate_synthetic_dataset(
                 full_sequence = outputs[0]
                 generated_tokens = full_sequence[prompt_length:]
                 
-                response_text = tokenizer.decode(generated_tokens, skip_special_tokens=True)
-                
                 # Create labels: mask prompt (-100), keep response
                 # Same approach as synthetic_dataset.py
                 labels = torch.full_like(full_sequence, fill_value=-100)
@@ -148,16 +144,9 @@ def generate_synthetic_dataset(
                 filtering_config = config.get('synthetic_data.filtering', {})
                 if filtering_config.get('enabled', True):
                     min_length = filtering_config.get('min_length', 10)
-                    
                     response_length = len(generated_tokens)
                     if response_length < min_length:
                         continue
-                
-                # Sequence should already be within max_length due to generation constraints
-                # But double-check and truncate if needed (shouldn't happen)
-                if len(full_sequence) > max_seq_len:
-                    full_sequence = full_sequence[:max_seq_len]
-                    labels = labels[:max_seq_len]
                 
                 # Create attention mask (all 1s for valid sequence)
                 attention_mask = torch.ones_like(full_sequence)
@@ -166,9 +155,6 @@ def generate_synthetic_dataset(
                 synthetic_data["input_ids"].append(full_sequence.cpu().tolist())
                 synthetic_data["attention_mask"].append(attention_mask.cpu().tolist())
                 synthetic_data["labels"].append(labels.cpu().tolist())
-                synthetic_data["id"].append(f"synthetic_{idx}")
-                synthetic_data["prompt_text"].append(prompt_text)
-                synthetic_data["response_text"].append(response_text)
                 
                 total_tokens_generated += len(generated_tokens)
                 successful_generations += 1
