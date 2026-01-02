@@ -1,10 +1,15 @@
 import torch
-import wandb
 import torch.nn.functional as F
 import torch.distributed as dist
 from tqdm.auto import tqdm
 import pdb
 import sys
+
+try:
+    import wandb
+    WANDB_AVAILABLE = True
+except ImportError:
+    WANDB_AVAILABLE = False
 
 from distill_bench.core.utils import is_main_process, main_print
 
