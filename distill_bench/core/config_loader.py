@@ -51,9 +51,9 @@ class Config:
         model = self._config.get('model', {})
         self.teacher_model_name = model.get('teacher', '')
         self.student_model_name = model.get('student', '')
-        self.policy_model_name = model.get('policy', '')
-        self.reference_model_name = model.get('reference', '')
-        self.judge_model_name = model.get('judge', '')
+        self.reference_model_name = model.get('reference', self.student_model_name)
+        self.policy_model_name = model.get('policy', self.student_model_name)
+        self.judge_model_name = model.get('judge', self.teacher_model_name)
         self.student_vocab_size = model.get('student_vocab_size', 100352)
         
         # Output
@@ -67,14 +67,20 @@ class Config:
         distill = self._config.get('distillation', {})
         self.alpha = distill.get('alpha', 0.5)
         self.kl_temperature = distill.get('temperature', 2.0)
-        
-        # DPO
-        dpo_cfg = self._config.get('dpo', {})
-        self.dpo_beta = dpo_cfg.get('beta', 0.1)
-        self.dpo_preference_dataset = dpo_cfg.get('preference_dataset', '')
-        self.dpo_preference_dataset_path = dpo_cfg.get('preference_dataset_path', '')
-        self.dpo_judge_labeling = dpo_cfg.get('judge_labeling', {})
-        self.dpo_candidate_generation = dpo_cfg.get('candidate_generation', {})
+
+        # DPO-specific
+        dpo = self._config.get('dpo', {})
+        self.dpo_beta = dpo.get('beta', 0.1)
+        self.dpo_preference_dataset = dpo.get('preference_dataset', '')
+        self.dpo_preference_dataset_path = dpo.get('preference_dataset_path', '')
+        judge_cfg = dpo.get('judge_labeling', {})
+        self.dpo_judge_enabled = judge_cfg.get('enabled', False)
+        self.dpo_judge_temperature = judge_cfg.get('temperature', 0.0)
+        self.dpo_scoring_method = judge_cfg.get('scoring_method', 'likelihood')
+        candidate_cfg = dpo.get('candidate_generation', {})
+        self.dpo_candidate_generation_enabled = candidate_cfg.get('enabled', False)
+        self.dpo_num_candidates_per_prompt = candidate_cfg.get('num_candidates_per_prompt', 2)
+        self.dpo_candidate_temperature = candidate_cfg.get('temperature', 0.8)
         
         # W&B
         wandb = self._config.get('wandb', {})
@@ -194,35 +200,26 @@ def validate_config(config: Config) -> Dict[str, Any]:
     Returns:
         Dictionary with validation results
     """
+    required_fields = {
+        'pipeline': ['kd', 'sft', 'dpo'],
+        'teacher_model_name': None,
+        'student_model_name': None,
+        'dataset_path': None,
+        'output_dir': None,
+        'batch_size': None,
+        'learning_rate': None,
+    }
+    
     errors = []
     warnings = []
     
-    # Validate pipeline type
-    if config.pipeline not in ['kd', 'sft', 'dpo']:
-        errors.append(f"Invalid pipeline: {config.pipeline}. Must be one of ['kd', 'sft', 'dpo']")
-    
-    # Pipeline-specific required fields
-    if config.pipeline == 'kd':
-        required = ['teacher_model_name', 'student_model_name', 'dataset_path']
-    elif config.pipeline == 'sft':
-        required = ['teacher_model_name', 'student_model_name']
-    else:  # dpo
-        required = ['policy_model_name', 'reference_model_name']
-    
-    # Common required fields
-    required += ['output_dir', 'batch_size', 'learning_rate']
-    
-    for field in required:
+    for field, allowed_values in required_fields.items():
         value = getattr(config, field, None)
+        
         if value is None or value == '':
             errors.append(f"Missing required field: {field}")
-    
-    # DPO-specific checks
-    if config.pipeline == 'dpo':
-        if not config.dpo_preference_dataset and not config.dpo_preference_dataset_path:
-            warnings.append("No preference dataset specified; set dpo.preference_dataset or dpo.preference_dataset_path.")
-        if config.dpo_beta is None:
-            warnings.append("DPO beta not set; defaulting to 0.1")
+        elif allowed_values and value not in allowed_values:
+            errors.append(f"Invalid value for {field}: {value}. Must be one of {allowed_values}")
     
     # Check output dir is writable
     output_dir = Path(config.output_dir)
