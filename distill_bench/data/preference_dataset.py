@@ -23,6 +23,9 @@ from distill_bench.core.utils import main_print
 
 def _build_prompt_text(example: Dict, tokenizer: AutoTokenizer) -> Optional[str]:
     """Return chat-formatted prompt text from either `messages` or `prompt`."""
+    if "chat_text" in example and example["chat_text"]:
+        return example["chat_text"]
+
     if example.get("messages"):
         user_messages = [m for m in example["messages"] if m.get("role") == "user"]
         if not user_messages:
@@ -42,6 +45,28 @@ def _build_prompt_text(example: Dict, tokenizer: AutoTokenizer) -> Optional[str]
         )
 
     return None
+
+
+def _load_prompt_dataset(config: Config) -> datasets.Dataset:
+    """
+    Load a prompt dataset, preferring already-preprocessed on-disk data from
+    `tulu_preprocess_dataset.py`.
+
+    Priority:
+      1) dpo_preference_dataset_path (if exists on disk)
+      2) dataset_path (preprocessed tulu data with chat_text)
+      3) remote dataset by name
+    """
+    if config.dpo_preference_dataset_path and Path(config.dpo_preference_dataset_path).exists():
+        ds = datasets.load_from_disk(config.dpo_preference_dataset_path)
+    elif config.dataset_path and Path(config.dataset_path).exists():
+        ds = datasets.load_from_disk(config.dataset_path)
+    else:
+        ds = datasets.load_dataset(config.dpo_preference_dataset or config.dataset_name)
+
+    if isinstance(ds, datasets.DatasetDict):
+        return ds["train"]
+    return ds
 
 
 def _sequence_logprob(
@@ -96,9 +121,7 @@ def generate_preference_dataset(
     ).to(device)
     judge_model.eval()
 
-    prompt_dataset_name = config.dpo_preference_dataset or config.dataset_name
-    main_print(f"Loading prompt dataset: {prompt_dataset_name}")
-    prompt_ds = datasets.load_dataset(prompt_dataset_name, split="train")
+    prompt_ds = _load_prompt_dataset(config)
     if prompt_limit and len(prompt_ds) > prompt_limit:
         prompt_ds = prompt_ds.select(range(prompt_limit), seed=config.seed)
 
