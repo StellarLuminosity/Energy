@@ -12,11 +12,8 @@ import math
 from distill_bench.core.config_loader import load_config
 from distill_bench.core.utils import get_dataset, prepare_dataset
 
-# Load config
-config = load_config('configs/experiments/kd_7b_to_1b.yaml')
 
-
-def get_teacher_logprobs():
+def get_teacher_logprobs(config):
     """Load or generate teacher logits dataset."""
     if not os.path.exists(os.path.join(config.logprob_cache_path, "teacher_logprobs")):
         print("--> Teacher logprobs not found")
@@ -27,7 +24,7 @@ def get_teacher_logprobs():
     return dataset
 
 
-def build_teacher_logprobs_dataset():
+def build_teacher_logprobs_dataset(config):
     """Build and save the final `DatasetDict(train=..., test=...)` from chunks."""
     data_dict = {}
     for split in ["train", "test"]:
@@ -46,7 +43,7 @@ def build_teacher_logprobs_dataset():
     DatasetDict(data_dict).save_to_disk(final_path)
 
 
-def cache_teacher_logprobs():
+def cache_teacher_logprobs(config):
     """Cache teacher model logprobs for knowledge distillation."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -113,9 +110,17 @@ def cache_teacher_logprobs():
             Dataset.from_dict(save_ds).save_to_disk(chunk_path)
 
     print("✓ Logits saved. Now building full dataset...")
-    build_teacher_logprobs_dataset()
+    build_teacher_logprobs_dataset(config)
     print("✓ All teacher logprobs cached.")
 
 
 if __name__ == "__main__":
-    cache_teacher_logprobs()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Cache teacher logprobs for KD")
+    parser.add_argument("--config", type=str, required=True,
+                        help="Path to experiment config YAML")
+    args = parser.parse_args()
+    
+    config = load_config(args.config)
+    cache_teacher_logprobs(config)

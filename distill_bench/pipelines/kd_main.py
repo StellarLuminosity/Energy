@@ -19,9 +19,6 @@ from distill_bench.core.checkpoint import SimpleCheckpointer
 from distill_bench.core.energy_logger import EnergyTracker
 from distill_bench.core.environment import save_environment, collect_environment
 
-# Load config
-config = load_config('configs/experiments/kd_7b_to_1b.yaml')
-
 
 # Watch GPU usage in real-time
 # ssh kn149  # Your node
@@ -50,8 +47,11 @@ def main(args):
     Simplified single teacher-student distillation pipeline.
     
     Args:
-        args: Argparse namespace with mixed_precision flag
+        args: Argparse namespace with config and mixed_precision flag
     """
+    
+    # Load config
+    config = load_config(args.config)
     
     # ----------------------------------
     # DDP Setup and Initialization
@@ -417,6 +417,8 @@ def main(args):
 # ==================================================
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Simple Teacher-Student Distillation")
+    parser.add_argument("--config", type=str, required=True,
+                        help="Path to experiment config YAML")
     parser.add_argument("--mixed-precision", action="store_true", default=True,
                         help="Use mixed precision training")
     args = parser.parse_args()

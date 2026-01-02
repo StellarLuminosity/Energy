@@ -7,11 +7,8 @@ import os
 
 from distill_bench.core.config_loader import load_config
 
-# Load config
-config = load_config('configs/experiments/kd_7b_to_1b.yaml')
 
-
-def main():
+def main(config):
     """Generate synthetic dataset using teacher model."""
     dataset = datasets.load_from_disk(config.dataset_path)
     dataloader = DataLoader(dataset["train"].select(range(100)), batch_size=2)
@@ -73,4 +70,12 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Generate synthetic dataset using teacher")
+    parser.add_argument("--config", type=str, required=True,
+                        help="Path to experiment config YAML")
+    args = parser.parse_args()
+    
+    config = load_config(args.config)
+    main(config)

@@ -11,9 +11,6 @@ from distill_bench.core.config_loader import load_config
 from distill_bench.core.checkpoint import AppState
 from distill_bench.core.utils import prepare_dataset, get_dataset, fix_seed
 
-# Load config
-config = load_config('configs/experiments/kd_7b_to_1b.yaml')
-
 
 def load_distributed_checkpoint(checkpoint_dir, model):
     """Load a distributed checkpoint (directory format) into a model.
@@ -173,6 +170,9 @@ def eval_main(args):
     print("MODEL EVALUATION")
     print("="*70)
     
+    # Load config
+    config = load_config(args.config)
+    
     # Load dataset
     print("Loading test dataset...")
     dataset = get_dataset(config)
@@ -220,14 +220,22 @@ if __name__ == "__main__":
         epilog="""
 Examples:
   # Distributed checkpoint (directory):
-  python kd_eval.py --model_path /scratch/klambert/model_log/singular/checkpoints/checkpoint_epoch0_step5000
+  python kd_eval.py --config configs/experiments/kd_7b_to_1b.yaml --model_path /scratch/klambert/model_log/singular/checkpoints/checkpoint_epoch0_step5000
   
   # Final model (.pt file):
-  python kd_eval.py --model_path /scratch/klambert/model_log/singular/final_model/model.pt
+  python kd_eval.py --config configs/experiments/kd_7b_to_1b.yaml --model_path /scratch/klambert/model_log/singular/final_model/model.pt
   
   # Student baseline:
-  python kd_eval.py --model_name allenai/OLMo-2-0425-1B-SFT
+  python kd_eval.py --config configs/experiments/kd_7b_to_1b.yaml --model_name allenai/OLMo-2-0425-1B-SFT
         """
+    )
+    
+    # Config
+    parser.add_argument(
+        "--config",
+        type=str,
+        required=True,
+        help="Path to experiment config YAML"
     )
     
     # Model loading

@@ -8,9 +8,6 @@ import torch.nn.functional as F
 
 from distill_bench.core.config_loader import load_config
 
-# Load config
-config = load_config('configs/experiments/sft_7b_to_1b.yaml')
-
 # ----------------------------------
 # Helper Functions
 # ----------------------------------
@@ -76,7 +73,7 @@ def contains_complete_response_template(sample, tokenizer):
     return False
 
 
-def main():
+def main(config):
     """Main preprocessing function."""
     # ----------------------------------
     # Load Dataset
@@ -207,5 +204,13 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
+    
+    parser = argparse.ArgumentParser(description="Preprocess Tulu dataset")
+    parser.add_argument("--config", type=str, required=True,
+                        help="Path to experiment config YAML")
+    args = parser.parse_args()
+    
+    config = load_config(args.config)
+    main(config)
 
