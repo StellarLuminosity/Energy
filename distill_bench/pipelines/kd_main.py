@@ -1,14 +1,11 @@
 import argparse
 import os
-import pdb
 import time
 import wandb
 import torch
-import torch.distributed as dist
 from datetime import datetime
+import torch.distributed as dist
 from transformers import AutoModelForCausalLM, AutoTokenizer, get_cosine_schedule_with_warmup
-from torch.distributed.fsdp import fully_shard, MixedPrecisionPolicy
-from torch.distributed.checkpoint.state_dict import get_state_dict, StateDictOptions
 from tqdm.auto import tqdm
 from typing import Any
 
@@ -54,12 +51,18 @@ def main(args):
     config = load_config(args.config)
     
     # ----------------------------------
-    # DDP Setup and Initialization
+    # Distributed Setup (optional)
     # ----------------------------------
-    rank = int(os.environ["LOCAL_RANK"])
-    device = torch.device(f"cuda:{rank}")
-    torch.cuda.set_device(device)
-    torch.distributed.init_process_group(backend="nccl", device_id=device)
+    world_size = int(os.environ.get("WORLD_SIZE", "1"))
+    use_distributed = world_size > 1
+    if use_distributed:
+        rank = int(os.environ.get("LOCAL_RANK", 0))
+        device = torch.device(f"cuda:{rank}")
+        torch.cuda.set_device(device)
+        dist.init_process_group(backend="nccl", device_id=device)
+    else:
+        rank = 0
+        device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     fix_seed(config.seed)
 
     # ----------------------------------
@@ -156,30 +159,13 @@ def main(args):
     )
     
     # ----------------------------------
-    # Load Student Model
+    # Load Student Model (single GPU)
     # ----------------------------------
     main_print("Loading student model...")
     student_model = AutoModelForCausalLM.from_pretrained(
         config.student_model_name,
         torch_dtype=torch.bfloat16,
-    )
-    
-    # ----------------------------------
-    # FSDP Setup for Student
-    # ----------------------------------
-    fsdp_kwargs = {}
-    if args.mixed_precision:
-        fsdp_kwargs["mp_policy"] = MixedPrecisionPolicy(
-            param_dtype=torch.bfloat16,
-            reduce_dtype=torch.float32,
-        )
-    
-    # Move to device and wrap with FSDP
-    # FSDP will handle efficient sharding during wrapping
-    student_model = student_model.to(device)
-    for layer in student_model.model.layers:
-        fully_shard(layer, **fsdp_kwargs)
-    fully_shard(student_model, **fsdp_kwargs)
+    ).to(device)
     
     # ----------------------------------
     # Optimizer and Scheduler
@@ -198,7 +184,7 @@ def main(args):
     # ----------------------------------
     # Checkpointer Setup
     # ----------------------------------
-    checkpointer = SimpleCheckpointer(output_path)
+    checkpointer = SimpleCheckpointer(output_path) if dist.is_initialized() else None
     
     # ----------------------------------
     # Resume from Checkpoint (if applicable)
@@ -345,30 +331,14 @@ def main(args):
     if dist.is_initialized():
         dist.barrier()
     
-    options = StateDictOptions(
-        full_state_dict=True,
-        cpu_offload=True,
-    )
-    model_state_dict, _ = get_state_dict(student_model, optimizers=optimizer, options=options)
-    
     if is_main_process():
         final_model_path = os.path.join(output_path, "final_model")
         os.makedirs(final_model_path, exist_ok=True)
         
-        # Save just the model state dict for inference
-        torch.save(model_state_dict, os.path.join(final_model_path, "model.pt"))
-        main_print(f"\nSaved final model to {final_model_path}")
-        
-        try:
-            hf_model = AutoModelForCausalLM.from_pretrained(
-                config.student_model_name,
-                torch_dtype=torch.bfloat16,
-            )
-            hf_model.load_state_dict(model_state_dict)
-            hf_model.save_pretrained(os.path.join(final_model_path, "hf_format"))
-            main_print(f"Also saved in HuggingFace format: {final_model_path}/hf_format")
-        except Exception as e:
-            main_print(f"Note: Could not save HuggingFace format ({e}), but .pt file is valid")
+        # Save both torch state dict and HF format for portability
+        torch.save(student_model.state_dict(), os.path.join(final_model_path, "model.pt"))
+        student_model.save_pretrained(os.path.join(final_model_path, "hf_format"))
+        main_print(f"\nSaved final model to {final_model_path} (model.pt + hf_format)")
 
     if dist.is_initialized():
         dist.barrier()
@@ -397,8 +367,8 @@ def main(args):
         wandb.finish()
     
     # Clean up distributed processes
-    dist.barrier()
     if dist.is_initialized():
+        dist.barrier()
         dist.destroy_process_group()
 
 
