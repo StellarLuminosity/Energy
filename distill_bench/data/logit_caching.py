@@ -12,8 +12,8 @@ import math
 from distill_bench.core.config_loader import load_config
 from distill_bench.core.utils import get_dataset, prepare_dataset
 
-# Load config from environment variable or default
-config = load_config(os.environ.get('DISTILL_CONFIG', 'configs/experiments/kd_7b_to_1b.yaml'))
+# Load config
+config = load_config('configs/experiments/kd_7b_to_1b.yaml')
 
 
 def get_teacher_logprobs():

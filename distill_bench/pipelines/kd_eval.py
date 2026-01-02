@@ -220,13 +220,13 @@ if __name__ == "__main__":
         epilog="""
 Examples:
   # Distributed checkpoint (directory):
-  DISTILL_CONFIG=configs/experiments/kd_7b_to_1b.yaml python kd_eval.py --model_path /scratch/klambert/model_log/singular/checkpoints/checkpoint_epoch0_step5000
+  python kd_eval.py --model_path /scratch/klambert/model_log/singular/checkpoints/checkpoint_epoch0_step5000
   
   # Final model (.pt file):
-  DISTILL_CONFIG=configs/experiments/kd_7b_to_1b.yaml python kd_eval.py --model_path /scratch/klambert/model_log/singular/final_model/model.pt
+  python kd_eval.py --model_path /scratch/klambert/model_log/singular/final_model/model.pt
   
   # Student baseline:
-  DISTILL_CONFIG=configs/experiments/kd_7b_to_1b.yaml python kd_eval.py --model_name allenai/OLMo-2-0425-1B-SFT
+  python kd_eval.py --model_name allenai/OLMo-2-0425-1B-SFT
         """
     )
     

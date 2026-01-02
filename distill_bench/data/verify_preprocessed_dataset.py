@@ -23,10 +23,9 @@ import numpy as np
 import statistics
 
 from distill_bench.core.config_loader import load_config
-import os
 
-# Load config from environment variable or default
-config = load_config(os.environ.get('DISTILL_CONFIG', 'configs/experiments/sft_7b_to_1b.yaml'))
+# Load config
+config = load_config('configs/experiments/sft_7b_to_1b.yaml')
 
 
 def inspect_sample(sample, sample_idx, tokenizer):
