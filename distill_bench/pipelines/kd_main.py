@@ -2,6 +2,7 @@ import argparse
 import os
 import pdb
 import time
+import wandb
 import torch
 import torch.distributed as dist
 from datetime import datetime
@@ -16,14 +17,7 @@ from distill_bench.core.trainer import Trainer
 from distill_bench.core.utils import prepare_dataset, get_dataset, is_main_process, main_print, fix_seed
 from distill_bench.core.checkpoint import SimpleCheckpointer
 from distill_bench.core.energy_logger import EnergyTracker
-from distill_bench.core.environment import save_environment
-
-try:
-    import wandb
-    WANDB_AVAILABLE = True
-except ImportError:
-    WANDB_AVAILABLE = False
-    print("Warning: wandb not available. Install with: pip install wandb")
+from distill_bench.core.environment import save_environment, collect_environment
 
 
 # Watch GPU usage in real-time
@@ -95,7 +89,6 @@ def main(args):
     # ----------------------------------
     # Wandb Initialization
     # ----------------------------------
-    use_wandb = WANDB_AVAILABLE
     if is_main_process():
         # Generate run name if not provided
         run_name = config.wandb_run_name
@@ -105,24 +98,14 @@ def main(args):
             teacher_short = config.teacher_model_name.split('/')[-1]
             run_name = f"{student_short}_from_{teacher_short}_{timestamp}"
         
-    # TODO: structure the run into stages; Separate accounting for
-        # Teacher forward / label generation (if you do on-the-fly logits or synthetic outputs)
-        # Student training (KD + CE)
-        # Evaluation (benchmarks)
-        # Optional: data preprocessing / tokenization (if non-trivial)
-    # TODO: log tokens and stages - i.e inside the training loop tokens_processed and steps_completed
-    # At the end of each run, log:
-        # tokens_processed_total,
-        # tokens_per_second,
-        # joules_per_token = total_joules / tokens_processed_total
-    # TODO: track eval energy separately
-
+        # Collect hardware metadata
+        env_metadata = collect_environment()
+        
         # Initialize wandb
         wandb.init(
             project=config.wandb_project,
             name=run_name,
             config={
-                
                 "teacher_model": config.teacher_model_name,
                 "student_model": config.student_model_name,
                 "num_epochs": config.num_epochs,
@@ -139,9 +122,20 @@ def main(args):
                 "mixed_precision": args.mixed_precision,
             },
         )
+        
+        # Log hardware metadata to W&B
+        wandb.config.update({
+            "hardware/gpu_count": len(env_metadata.get('gpus', [])),
+            "hardware/gpu_type": env_metadata['gpus'][0]['name'] if env_metadata.get('gpus') else 'None',
+            "hardware/gpu_vram_gb": env_metadata['gpus'][0]['memory_total_mb'] / 1024 if env_metadata.get('gpus') else 0,
+            "hardware/cpu": env_metadata['cpu']['brand'],
+            "hardware/cpu_cores": env_metadata['cpu']['physical_cores'],
+            "software/pytorch": env_metadata['software']['pytorch_version'],
+            "software/cuda": env_metadata['software']['cuda_version'],
+            "software/transformers": env_metadata['software']['transformers_version'],
+        })
+        
         main_print(f"Wandb initialized: {wandb.run.url}")
-    else:
-        use_wandb = False
     
     # ----------------------------------
     # Dataset Loading
@@ -396,7 +390,7 @@ def main(args):
         main_print(f"Energy summary: {summary_file}")
         
         # Log to wandb
-        if use_wandb:
+        if is_main_process():
             wandb.log(energy_tracker.get_wandb_metrics(prefix="energy"))
     
     # Finish wandb logging

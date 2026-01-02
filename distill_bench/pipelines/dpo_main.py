@@ -17,6 +17,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer, get_cosine_schedul
 from distill_bench.core.config_loader import load_config
 from distill_bench.core.dpo_trainer import DPOTrainer
 from distill_bench.core.energy_logger import EnergyTracker
+from distill_bench.core.environment import collect_environment
 from distill_bench.core.utils import fix_seed, main_print
 from distill_bench.data.preference_dataset import (
     create_dpo_dataloaders,
@@ -83,11 +84,27 @@ def main(args):
 
     if use_wandb:
         run_name = config.wandb_run_name or f"dpo_{config.policy_model_name.split('/')[-1]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        
+        # Collect hardware metadata
+        env_metadata = collect_environment()
+        
         wandb.init(
             project=config.wandb_project,
             name=run_name,
             config=config.to_dict(),
         )
+        
+        # Log hardware metadata
+        wandb.config.update({
+            "hardware/gpu_count": len(env_metadata.get('gpus', [])),
+            "hardware/gpu_type": env_metadata['gpus'][0]['name'] if env_metadata.get('gpus') else 'None',
+            "hardware/gpu_vram_gb": env_metadata['gpus'][0]['memory_total_mb'] / 1024 if env_metadata.get('gpus') else 0,
+            "hardware/cpu": env_metadata['cpu']['brand'],
+            "hardware/cpu_cores": env_metadata['cpu']['physical_cores'],
+            "software/pytorch": env_metadata['software']['pytorch_version'],
+            "software/cuda": env_metadata['software']['cuda_version'],
+            "software/transformers": env_metadata['software']['transformers_version'],
+        })
 
     trainer = DPOTrainer(
         policy_model=policy_model,
