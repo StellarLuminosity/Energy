@@ -322,7 +322,9 @@ class EnergyTracker:
                 if self._impact_tracker_dir and self._impact_tracker_dir.exists():
                     try:
                         data_interface = DataInterface([str(self._impact_tracker_dir)])
-                        stage_metrics.impact_tracker_energy_kwh = data_interface.total_power / 1000.0  # W to kW, approximate
+                        # total_power is average power in Watts; convert to kWh: (W * seconds) / 3600000
+                        duration_sec = stage_metrics.end_time - stage_metrics.start_time
+                        stage_metrics.impact_tracker_energy_kwh = (data_interface.total_power * duration_sec) / 3_600_000
                     except Exception:
                         pass  # Data might not be available yet
             except Exception as e:
