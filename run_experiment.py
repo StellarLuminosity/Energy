@@ -29,6 +29,11 @@ def main():
         default=True,
         help="Use mixed precision training (KD only)"
     )
+    parser.add_argument(
+        "--run-prerun",
+        action="store_true",
+        help="Run quick prerun validation before executing pipeline"
+    )
     
     args = parser.parse_args()
     
@@ -41,6 +46,14 @@ def main():
     print()
     
     # Dispatch to appropriate pipeline
+    if args.run_prerun:
+        # Quick validation before the main run
+        from distill_bench.core.prerun import quick_validation
+        quick_ok = quick_validation(output_dir=str(Path(config.output_dir) / "prerun_validation"))
+        if not quick_ok:
+            print("Prerun validation failed; aborting.")
+            sys.exit(1)
+    
     if pipeline == "kd":
         from distill_bench.pipelines import kd_main
         kd_main.main(args)
@@ -61,4 +74,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

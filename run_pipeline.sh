@@ -9,11 +9,11 @@
 #SBATCH --account=aip-craffel                                             
 #SBATCH --time=11:58:00
 
-# Unified experiment launcher for KD/SFT/DPO pipelines
+# Unified experiment launcher for KD/SFT/DPO pipelines (single-GPU)
 #
 # Usage:
 #   sbatch run_pipeline.sh configs/experiments/kd_7b_to_1b.yaml
-#   sbatch run_pipeline.sh configs/experiments/sft_7b_to_1b.yaml --skip-validation
+#   sbatch run_pipeline.sh configs/experiments/sft_7b_to_1b.yaml --run-prerun
 
 # Get config path from command line argument
 CONFIG_PATH=${1:-"configs/experiments/kd_7b_to_1b.yaml"}
@@ -26,20 +26,9 @@ echo "Job ${SLURM_JOB_NAME} (${SLURM_JOB_ID}) started at $(date)"
 echo "Running on node: $(hostname)"
 echo "Job ID: $SLURM_JOB_ID"
 echo "Config: $CONFIG_PATH"
-echo "GPU resources: $CUDA_VISIBLE_DEVICES"
+echo "GPU resources: ${CUDA_VISIBLE_DEVICES:-auto}"
 echo "Extra args: $EXTRA_ARGS"
 echo "==============================================="
-
-# Auto-detect number of GPUs
-if [ -n "$SLURM_GPUS_ON_NODE" ]; then
-    export WORLD_SIZE=$SLURM_GPUS_ON_NODE
-elif [ -n "$CUDA_VISIBLE_DEVICES" ]; then
-    export WORLD_SIZE=$(echo $CUDA_VISIBLE_DEVICES | tr ',' '\n' | wc -l)
-else
-    export WORLD_SIZE=$(nvidia-smi --list-gpus | wc -l)
-fi
-
-echo "Detected $WORLD_SIZE GPU(s) for training"
 
 # Export hardware metadata for energy tracking
 export SLURM_JOB_ID=$SLURM_JOB_ID
@@ -49,16 +38,11 @@ export SLURM_NODELIST=$SLURM_NODELIST
 # Memory optimization
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-# NCCL settings (for multi-GPU if needed)
-export NCCL_TIMEOUT=1800
-export NCCL_DEBUG=INFO
-export NCCL_IB_DISABLE=1
-
 # Load modules
 module load gcc arrow/18.1.0
 source /home/klambert/projects/aip-craffel/shared/slm_ensemble/prj/bin/activate
 
-# Run experiment
+# Run experiment (single-process)
 python run_experiment.py --config "$CONFIG_PATH" $EXTRA_ARGS
 
 EXIT_CODE=$?
@@ -69,4 +53,3 @@ echo "Exit code: $EXIT_CODE"
 echo "==============================================="
 
 exit $EXIT_CODE
-
