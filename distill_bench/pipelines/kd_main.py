@@ -291,19 +291,9 @@ def main(args):
             if trainer.global_step > 0 and trainer.global_step % config.eval_steps == 0:
                 dist.barrier()  # Sync before eval
                 
-                # Temporarily pause training energy tracking for eval
-                if energy_tracker and energy_tracker.current_stage == "student_train":
-                    energy_tracker.end_stage(tokens_processed=total_tokens_processed)
-                    energy_tracker.start_stage("evaluation")
-                
                 eval_loss, should_stop = trainer.eval_step(eval_dataloader)
                 main_print(f"Step {trainer.global_step}: eval_loss = {eval_loss:.4f}")
                 eval_count += 1
-                
-                # Resume training energy tracking
-                if energy_tracker and energy_tracker.current_stage == "evaluation":
-                    energy_tracker.end_stage()
-                    energy_tracker.start_stage("student_train")
                 
                 dist.barrier()  # Sync after eval
                 

@@ -10,6 +10,8 @@ import torch.distributed.checkpoint as dcp
 from distill_bench.core.config_loader import load_config
 from distill_bench.core.checkpoint import AppState
 from distill_bench.core.utils import prepare_dataset, get_dataset, fix_seed
+from distill_bench.core.energy_logger import EnergyTracker
+from distill_bench.core.environment import save_environment
 
 
 def load_distributed_checkpoint(checkpoint_dir, model):
@@ -173,6 +175,24 @@ def eval_main(args):
     # Load config
     config = load_config(args.config)
     
+    # Setup output directory for energy logs
+    eval_output_dir = os.path.join(config.output_dir, "evaluation")
+    os.makedirs(eval_output_dir, exist_ok=True)
+    
+    # Save environment metadata
+    save_environment(eval_output_dir, filename="environment.json")
+    
+    # Setup energy tracking
+    energy_tracker = None
+    if getattr(config, 'energy_enabled', False):
+        energy_tracker = EnergyTracker(
+            output_dir=eval_output_dir,
+            experiment_name=f"{config.experiment_name}_eval",
+            nvml_poll_interval_ms=getattr(config, 'energy_nvml_poll_ms', 500),
+            track_cpu=getattr(config, 'energy_track_cpu', True),
+        )
+        print("Energy tracking enabled for evaluation")
+    
     # Load dataset
     print("Loading test dataset...")
     dataset = get_dataset(config)
@@ -193,10 +213,26 @@ def eval_main(args):
         device=device
     )
     
+    # Start energy tracking for evaluation
+    if energy_tracker:
+        energy_tracker.start_stage("eval_core")
+    
     # Evaluate
     avg_ce_loss, perplexity, num_batches = compute_ce_loss(
         model, eval_dataloader, device
     )
+    
+    # End energy tracking
+    if energy_tracker:
+        # Count total tokens evaluated
+        total_tokens = 0
+        for batch in eval_dataloader:
+            if "labels" in batch:
+                total_tokens += (batch["labels"] != -100).sum().item()
+        
+        energy_tracker.end_stage(tokens_processed=total_tokens)
+        summary_file = energy_tracker.save_summary()
+        print(f"Energy summary saved to: {summary_file}")
     
     # Print results
     if args.model_path:
