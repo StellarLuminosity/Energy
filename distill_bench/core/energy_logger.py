@@ -34,6 +34,11 @@ class StageMetrics:
     codecarbon_energy_kwh: float = 0.0
     codecarbon_emissions_kg: float = 0.0
     
+    # CPU + total
+    cpu_energy_joules: float = 0.0
+    total_energy_joules: float = 0.0
+    total_energy_kwh: float = 0.0
+    
     # Derived metrics
     joules_per_token: float = 0.0
     kwh_total: float = 0.0
@@ -45,14 +50,29 @@ class StageMetrics:
         
         if self.duration_seconds > 0 and self.tokens_processed > 0:
             self.tokens_per_second = self.tokens_processed / self.duration_seconds
+            
+        gpu_j = self.gpu_energy_joules
+        cc_kwh = self.codecarbon_energy_kwh
+        cc_j = cc_kwh * 3_600_000 if cc_kwh > 0 else 0.0
         
-        # Use GPU energy as primary source, fall back to CodeCarbon
-        total_joules = self.gpu_energy_joules
-        if total_joules == 0 and self.codecarbon_energy_kwh > 0:
-            total_joules = self.codecarbon_energy_kwh * 3_600_000  # kWh to joules
+        # CPU ≈ CodeCarbon_total - GPU_NVML, but never negative.
+        if self.cpu_energy_joules == 0.0 and cc_j > 0 and gpu_j > 0:
+            self.cpu_energy_joules = max(cc_j - gpu_j, 0.0)
         
-        if self.tokens_processed > 0 and total_joules > 0:
-            self.joules_per_token = total_joules / self.tokens_processed
+        # Total energy: GPU + CPU if we have them; otherwise fall back to
+        # whichever source is non-zero.
+        if gpu_j > 0 or self.cpu_energy_joules > 0:
+            self.total_energy_joules = gpu_j + self.cpu_energy_joules
+        else:
+            self.total_energy_joules = max(gpu_j, cc_j)
+
+        self.total_energy_kwh = self.total_energy_joules / 3_600_000 if self.total_energy_joules > 0 else 0.0
+
+        # Keep kwh_total for compatibility
+        self.kwh_total = self.total_energy_kwh or (cc_kwh or gpu_j / 3_600_000 if gpu_j > 0 else 0.0)
+        
+        if self.tokens_processed > 0 and self.total_energy_joules > 0:
+            self.joules_per_token = self.total_energy_joules / self.tokens_processed
         
         # Combine energy sources for total kWh
         self.kwh_total = max(
