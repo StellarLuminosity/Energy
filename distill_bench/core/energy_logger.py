@@ -82,6 +82,12 @@ class StageMetrics:
         else:
             self.joules_per_token = 0.0
 
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary, excluding raw power samples from summary."""
+        data = asdict(self)
+        data.pop("gpu_power_samples", None)
+        return data
+
 class RAPLReader:
     """
     Minimal RAPL wrapper to read package (and optional dram) energy via powercap.
