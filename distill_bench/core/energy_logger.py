@@ -350,7 +350,9 @@ class EnergyTracker:
     
     def get_summary(self) -> Dict[str, Any]:
         """Get summary of all stages."""
-        total_energy_joules = sum(s.gpu_energy_joules for s in self.stages.values())
+        total_gpu_joules = sum(s.gpu_energy_joules for s in self.stages.values())
+        total_cpu_joules = sum(s.cpu_energy_joules for s in self.stages.values())
+        total_energy_joules = sum(s.total_energy_joules for s in self.stages.values())
         total_tokens = sum(s.tokens_processed for s in self.stages.values())
         total_duration = sum(s.duration_seconds for s in self.stages.values())
         
@@ -361,10 +363,12 @@ class EnergyTracker:
             "end_time": datetime.now().isoformat(),
             "total_duration_seconds": total_duration,
             "total_tokens_processed": total_tokens,
+            "total_gpu_energy_joules": total_gpu_joules,
+            "total_cpu_energy_joules": total_cpu_joules,
             "total_energy_joules": total_energy_joules,
-            "total_energy_kwh": total_energy_joules / 3_600_000,
-            "overall_joules_per_token": total_energy_joules / total_tokens if total_tokens > 0 else 0,
-            "overall_tokens_per_second": total_tokens / total_duration if total_duration > 0 else 0,
+            "total_energy_kwh": total_energy_joules / 3_600_000 if total_energy_joules > 0 else 0.0,
+            "overall_joules_per_token": total_energy_joules / total_tokens if total_tokens > 0 else 0.0,
+            "overall_tokens_per_second": total_tokens / total_duration if total_duration > 0 else 0.0,
             "stages": {name: metrics.to_dict() for name, metrics in self.stages.items()},
         }
     
@@ -382,25 +386,26 @@ class EnergyTracker:
         return summary_file
     
     def get_wandb_metrics(self, prefix: str = "energy") -> Dict[str, float]:
-        """Get metrics formatted for W&B logging."""
         metrics = {}
-        
         for stage_name, stage in self.stages.items():
             stage_prefix = f"{prefix}/{stage_name}"
             metrics[f"{stage_prefix}/duration_sec"] = stage.duration_seconds
             metrics[f"{stage_prefix}/gpu_energy_joules"] = stage.gpu_energy_joules
+            metrics[f"{stage_prefix}/cpu_energy_joules"] = stage.cpu_energy_joules
+            metrics[f"{stage_prefix}/total_energy_joules"] = stage.total_energy_joules
             metrics[f"{stage_prefix}/gpu_avg_power_watts"] = stage.gpu_avg_power_watts
             metrics[f"{stage_prefix}/tokens_processed"] = stage.tokens_processed
             metrics[f"{stage_prefix}/joules_per_token"] = stage.joules_per_token
             metrics[f"{stage_prefix}/tokens_per_second"] = stage.tokens_per_second
-        
-        # Totals
+
         summary = self.get_summary()
+        metrics[f"{prefix}/total_gpu_energy_joules"] = summary["total_gpu_energy_joules"]
+        metrics[f"{prefix}/total_cpu_energy_joules"] = summary["total_cpu_energy_joules"]
         metrics[f"{prefix}/total_energy_joules"] = summary["total_energy_joules"]
         metrics[f"{prefix}/total_energy_kwh"] = summary["total_energy_kwh"]
         metrics[f"{prefix}/total_tokens"] = summary["total_tokens_processed"]
         metrics[f"{prefix}/overall_joules_per_token"] = summary["overall_joules_per_token"]
-        
+
         return metrics
     
     def _cleanup(self):
