@@ -82,8 +82,7 @@ def main(args):
         energy_tracker = EnergyTracker(
             output_dir=output_path,
             experiment_name=getattr(config, 'experiment_name', 'kd_experiment'),
-            nvml_poll_interval_ms=getattr(config, 'energy_nvml_poll_ms', 500),
-            track_cpu=getattr(config, 'energy_track_cpu', True),
+            config=config,
         )
         main_print("Energy tracking enabled")
     

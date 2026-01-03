@@ -52,11 +52,12 @@ energy:
   enabled: true
   # NVML polling interval for GPU power
   nvml_poll_interval_ms: 500
-  # Track CPU energy (via experiment-impact-tracker)
+  # Track CPU energy (via RAPL if available)
   track_cpu: true
   # CodeCarbon settings
   country_iso_code: "USA"
   offline_mode: true
+  rapl_root: "/sys/class/powercap/intel-rapl"
 
 # Weights & Biases logging
 wandb:

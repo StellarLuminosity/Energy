@@ -49,7 +49,10 @@ def main():
     if args.run_prerun:
         # Quick validation before the main run
         from distill_bench.core.prerun import quick_validation
-        quick_ok = quick_validation(output_dir=str(Path(config.output_dir) / "prerun_validation"))
+        quick_ok = quick_validation(
+            output_dir=str(Path(config.output_dir) / "prerun_validation"),
+            config=config,
+        )
         if not quick_ok:
             print("Prerun validation failed; aborting.")
             sys.exit(1)

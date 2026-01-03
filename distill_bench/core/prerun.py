@@ -217,6 +217,7 @@ def run_burn_in_test(
     seq_length: int = 512,
     model_dim: int = 1024,
     num_layers: int = 12,
+    config: Optional[Any] = None,
 ) -> BurnInResult:
     """
     Run a quick burn-in test to verify energy logging works correctly.
@@ -280,8 +281,8 @@ def run_burn_in_test(
     burn_in_dir = Path(output_dir) / "burn_in"
     tracker = EnergyTracker(
         output_dir=str(burn_in_dir),
-        experiment_name="burn_in_test",
-        nvml_poll_interval_ms=500,
+        experiment_name=getattr(config, "experiment_name", "burn_in_test") if config else "burn_in_test",
+        config=config,
     )
     
     # Start tracking
@@ -612,6 +613,7 @@ def run_prerun_validation(
     skip_idle: bool = False,
     skip_burn_in: bool = False,
     skip_sampling: bool = False,
+    config: Optional[Any] = None,
 ) -> PreRunReport:
     """
     Run complete pre-run validation suite.
@@ -693,6 +695,7 @@ def run_prerun_validation(
         burn_in = run_burn_in_test(
             output_dir=str(output_path / "burn_in"),
             num_steps=burn_in_steps,
+            config=config,
         )
         
         if not burn_in.energy_logs_valid:
@@ -759,7 +762,7 @@ def run_prerun_validation(
 
 
 # Convenience function for quick validation
-def quick_validation(output_dir: str = "./prerun_validation") -> bool:
+def quick_validation(output_dir: str = "./prerun_validation", config: Optional[Any] = None) -> bool:
     """
     Run a quick validation with reduced durations (for testing).
     
@@ -774,6 +777,7 @@ def quick_validation(output_dir: str = "./prerun_validation") -> bool:
         idle_duration_minutes=1.0,  # 1 minute instead of 5
         burn_in_steps=100,  # 100 steps instead of 500
         skip_sampling=False,
+        config=config,
     )
     
     return report.all_checks_passed
@@ -820,4 +824,3 @@ if __name__ == "__main__":
         )
         
         exit(0 if report.all_checks_passed else 1)
-

@@ -96,6 +96,8 @@ class Config:
         self.energy_nvml_poll_ms = energy.get('nvml_poll_interval_ms', 500)
         self.energy_track_cpu = energy.get('track_cpu', True)
         self.energy_country_iso = energy.get('country_iso_code', 'USA')
+        self.energy_offline_mode = energy.get('offline_mode', True)
+        self.energy_rapl_root = energy.get('rapl_root', '/sys/class/powercap/intel-rapl')
     
     def get(self, key: str, default: Any = None) -> Any:
         """Get nested config value using dot notation."""

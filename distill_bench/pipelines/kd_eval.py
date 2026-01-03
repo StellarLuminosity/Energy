@@ -153,8 +153,7 @@ def eval_main(args):
         energy_tracker = EnergyTracker(
             output_dir=eval_output_dir,
             experiment_name=f"{config.experiment_name}_eval",
-            nvml_poll_interval_ms=getattr(config, 'energy_nvml_poll_ms', 500),
-            track_cpu=getattr(config, 'energy_track_cpu', True),
+            config=config,
         )
         print("Energy tracking enabled for evaluation")
     
@@ -256,5 +255,4 @@ Examples:
     
     args = parser.parse_args()
     eval_main(args)
-
 

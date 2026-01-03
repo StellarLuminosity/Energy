@@ -137,8 +137,7 @@ def main(args):
         energy_tracker = EnergyTracker(
             output_dir=config.output_dir,
             experiment_name=config.experiment_name,
-            nvml_poll_interval_ms=getattr(config, 'energy_nvml_poll_ms', 500),
-            track_cpu=getattr(config, 'energy_track_cpu', True),
+            config=config,
         )
     
     # W&B

@@ -1,4 +1,3 @@
-import os
 import json
 import time
 import threading
@@ -11,7 +10,6 @@ from pathlib import Path
 import torch
 from codecarbon import EmissionsTracker, OfflineEmissionsTracker
 import pynvml
-
 
 @dataclass
 class StageMetrics:
@@ -43,48 +41,127 @@ class StageMetrics:
     joules_per_token: float = 0.0
     kwh_total: float = 0.0
     tokens_per_second: float = 0.0
-    
+
     def compute_derived_metrics(self):
         """Compute derived metrics after stage completion."""
         self.duration_seconds = self.end_time - self.start_time
-        
+
         if self.duration_seconds > 0 and self.tokens_processed > 0:
             self.tokens_per_second = self.tokens_processed / self.duration_seconds
-            
+
         gpu_j = self.gpu_energy_joules
+        cpu_j = self.cpu_energy_joules
         cc_kwh = self.codecarbon_energy_kwh
         cc_j = cc_kwh * 3_600_000 if cc_kwh > 0 else 0.0
-        
-        # CPU ≈ CodeCarbon_total - GPU_NVML, but never negative.
-        if self.cpu_energy_joules == 0.0 and cc_j > 0 and gpu_j > 0:
-            self.cpu_energy_joules = max(cc_j - gpu_j, 0.0)
-        
-        # Total energy: GPU + CPU if we have them; otherwise fall back to
-        # whichever source is non-zero.
-        if gpu_j > 0 or self.cpu_energy_joules > 0:
-            self.total_energy_joules = gpu_j + self.cpu_energy_joules
+
+        # Total energy: prefer measured GPU + CPU; otherwise fall back to CodeCarbon.
+        if gpu_j > 0 or cpu_j > 0:
+            self.total_energy_joules = gpu_j + cpu_j
+        elif cc_j > 0:
+            self.total_energy_joules = cc_j
         else:
-            self.total_energy_joules = max(gpu_j, cc_j)
+            self.total_energy_joules = 0.0
 
-        self.total_energy_kwh = self.total_energy_joules / 3_600_000 if self.total_energy_joules > 0 else 0.0
+        self.total_energy_kwh = (
+            self.total_energy_joules / 3_600_000 if self.total_energy_joules > 0 else 0.0
+        )
 
-        # Keep kwh_total for compatibility
-        self.kwh_total = self.total_energy_kwh or (cc_kwh or gpu_j / 3_600_000 if gpu_j > 0 else 0.0)
-        
+        # Backwards-compatible kWh field:
+        # use measured total if we have it; else fall back to CodeCarbon or GPU-only.
+        if self.total_energy_kwh > 0:
+            self.kwh_total = self.total_energy_kwh
+        elif cc_kwh > 0:
+            self.kwh_total = cc_kwh
+        elif gpu_j > 0:
+            self.kwh_total = gpu_j / 3_600_000
+        else:
+            self.kwh_total = 0.0
+
         if self.tokens_processed > 0 and self.total_energy_joules > 0:
             self.joules_per_token = self.total_energy_joules / self.tokens_processed
-        
-        # Combine energy sources for total kWh
-        self.kwh_total = max(
-            self.codecarbon_energy_kwh,
-            self.gpu_energy_joules / 3_600_000  # joules to kWh
-        )
-    
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary, excluding raw power samples for summary."""
-        d = asdict(self)
-        d.pop('gpu_power_samples', None)  # Exclude raw samples from summary
-        return d
+        else:
+            self.joules_per_token = 0.0
+
+class RAPLReader:
+    """
+    Minimal RAPL wrapper to read package (and optional dram) energy via powercap.
+    """
+    def __init__(self, rapl_root: Path, domains: List[str] = ["package"]):
+        self.domains = domains
+        self.rapl_root = rapl_root
+        self.start_uj: Dict[str, int] = {}
+        self.end_uj: Dict[str, int] = {}
+        self.max_range_uj: Dict[str, int] = {}
+        self.available = self.rapl_root.exists()
+
+    def _read_int(self, p: Path) -> int:
+        return int(p.read_text().strip())
+
+    def _iter_zones(self):
+        # top-level zones: intel-rapl:0, intel-rapl:1, ...
+        for zone in self.rapl_root.glob("intel-rapl:*"):
+            # ignore subzones here
+            if zone.name.count(":") != 1:
+                continue
+            yield zone
+
+    def _collect_raw(self) -> Dict[str, int]:
+        """
+        Return energy_uj sums per domain across packages.
+        Keys: "package", "dram" if requested and present.
+        """
+        out = {d: 0 for d in self.domains}
+        if not self.available:
+            return out
+
+        for zone in self._iter_zones():
+            # package energy
+            if "package" in self.domains:
+                e_uj = self._read_int(zone / "energy_uj")
+                out["package"] += e_uj
+                self.max_range_uj.setdefault("package", self._read_int(zone / "max_energy_range_uj"))
+
+            # dram subzones (optional)
+            if "dram" in self.domains:
+                for sub in zone.glob("intel-rapl:*:*"):
+                    name_file = sub / "name"
+                    try:
+                        name = name_file.read_text().strip().lower()
+                    except Exception:
+                        continue
+                    if "dram" in name:
+                        e_uj = self._read_int(sub / "energy_uj")
+                        out["dram"] += e_uj
+                        self.max_range_uj.setdefault("dram", self._read_int(sub / "max_energy_range_uj"))
+        return out
+
+    def start(self):
+        if not self.available:
+            return
+        self.start_uj = self._collect_raw()
+
+    def stop(self) -> Dict[str, float]:
+        """
+        Returns energy deltas in Joules per domain.
+        """
+        if not self.available:
+            return {d: 0.0 for d in self.domains}
+        self.end_uj = self._collect_raw()
+        deltas_j: Dict[str, float] = {}
+        for d in self.domains:
+            s = self.start_uj.get(d, 0)
+            e = self.end_uj.get(d, 0)
+            mr = self.max_range_uj.get(d, 0)
+            if s == 0 and e == 0:
+                deltas_j[d] = 0.0
+                continue
+            if mr > 0 and e < s:
+                # wrapped
+                delta_uj = (e + (mr - s))
+            else:
+                delta_uj = e - s
+            deltas_j[d] = delta_uj / 1e6  # microjoules -> joules
+        return deltas_j
 
 
 class NVMLPoller:
@@ -173,11 +250,11 @@ class EnergyTracker:
     """
     Unified energy tracker for distillation experiments.
     
-    Wraps CodeCarbon, experiment-impact-tracker, and NVML for comprehensive
+    Wraps CodeCarbon, NVML polling, and optional RAPL CPU readings for
     energy measurement with stage-wise accounting.
     
     Usage:
-        tracker = EnergyTracker(output_dir, config)
+        tracker = EnergyTracker(output_dir, config=config)
         
         tracker.start_stage("teacher_forward")
         # ... do work ...
@@ -193,18 +270,51 @@ class EnergyTracker:
     def __init__(
         self,
         output_dir: str,
-        experiment_name: str = "experiment",
-        nvml_poll_interval_ms: int = 500,
-        track_cpu: bool = True,
-        country_iso_code: str = "USA",
-        offline_mode: bool = True,
+        experiment_name: Optional[str] = None,
+        config: Optional[Any] = None,
+        nvml_poll_interval_ms: Optional[int] = None,
+        track_cpu: Optional[bool] = None,
+        country_iso_code: Optional[str] = None,
+        offline_mode: Optional[bool] = None,
+        rapl_root: Optional[str] = None,
     ):
         self.output_dir = Path(output_dir)
-        self.experiment_name = experiment_name
-        self.nvml_poll_interval_ms = nvml_poll_interval_ms
-        self.track_cpu = track_cpu
-        self.country_iso_code = country_iso_code
-        self.offline_mode = offline_mode
+        self.config = config
+
+        def _cfg(explicit: Any, attr_name: str, dotted: str, default: Any) -> Any:
+            """Prefer explicit argument, then config attributes, then nested get(), else fallback."""
+            if explicit is not None:
+                return explicit
+            if self.config is not None:
+                if hasattr(self.config, attr_name):
+                    val = getattr(self.config, attr_name)
+                    if val is not None:
+                        return val
+                if hasattr(self.config, "get"):
+                    nested_val = self.config.get(dotted, None)
+                    if nested_val is not None:
+                        return nested_val
+            return default
+
+        self.experiment_name = (
+            _cfg(experiment_name, "experiment_name", "experiment.name", "experiment")
+        )
+        self.nvml_poll_interval_ms = _cfg(
+            nvml_poll_interval_ms, "energy_nvml_poll_ms", "energy.nvml_poll_interval_ms", 500
+        )
+        self.country_iso_code = _cfg(
+            country_iso_code, "energy_country_iso", "energy.country_iso_code", "USA"
+        )
+        self.offline_mode = _cfg(
+            offline_mode, "energy_offline_mode", "energy.offline_mode", True
+        )
+        self.track_cpu = _cfg(
+            track_cpu, "energy_track_cpu", "energy.track_cpu", True
+        )
+        rapl_root_val = _cfg(
+            rapl_root, "energy_rapl_root", "energy.rapl_root", "/sys/class/powercap/intel-rapl"
+        )
+        self.rapl_root = Path(rapl_root_val)
         
         # Create output directories
         self.energy_dir = self.output_dir / "energy_logs"
@@ -218,10 +328,11 @@ class EnergyTracker:
         # Tool instances (created per-stage)
         self._codecarbon_tracker: Optional[EmissionsTracker] = None
         self._nvml_poller: Optional[NVMLPoller] = None
-        
+        self._rapl_reader = RAPLReader(rapl_root=self.rapl_root, domains=["package"]) if self.track_cpu else None
+
         # Experiment metadata
         self.start_time = datetime.now().isoformat()
-        self.experiment_id = f"{experiment_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        self.experiment_id = f"{self.experiment_name}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
         
         # Register cleanup
         atexit.register(self._cleanup)
@@ -236,6 +347,16 @@ class EnergyTracker:
         stage_metrics = StageMetrics(stage_name=stage_name)
         stage_metrics.start_time = time.time()
         self.stages[stage_name] = stage_metrics
+        
+        # RAPL CPU energy
+        if self.track_cpu and self._rapl_reader is not None:
+            try:
+                if self._rapl_reader.available:
+                    self._rapl_reader.start()
+                else:
+                    print(f"[EnergyTracker] RAPL root missing at {self.rapl_root}; skipping CPU energy.")
+            except Exception as e:
+                print(f"[EnergyTracker] RAPL start failed: {e}")
         
         # Start CodeCarbon
         try:
@@ -288,16 +409,31 @@ class EnergyTracker:
         # Stop NVML and compute GPU energy
         if self._nvml_poller is not None:
             readings = self._nvml_poller.stop()
+
             if readings:
-                powers = [r["total_power_w"] for r in readings]
-                stage_metrics.gpu_power_samples = powers
-                stage_metrics.gpu_avg_power_watts = sum(powers) / len(powers)
-                stage_metrics.gpu_peak_power_watts = max(powers)
-                
-                # Compute energy: integrate power over time
-                # Each reading is poll_interval apart
-                interval_sec = self.nvml_poll_interval_ms / 1000.0
-                stage_metrics.gpu_energy_joules = sum(powers) * interval_sec
+                # Sort by timestamp for consistent order
+                readings.sort(key=lambda r: r["timestamp"])
+
+                # Store raw total power samples (for logging)
+                stage_metrics.gpu_power_samples = [
+                    r["total_power_w"] for r in readings
+                ]
+
+                # Average and peak power
+                stage_metrics.gpu_avg_power_watts = (
+                    sum(stage_metrics.gpu_power_samples) / len(stage_metrics.gpu_power_samples)
+                )
+                stage_metrics.gpu_peak_power_watts = max(stage_metrics.gpu_power_samples)
+
+            # Integrate power over time using trapezoidal rule
+            if len(readings) >= 2:
+                e_j = 0.0
+                for a, b in zip(readings, readings[1:]):
+                    p0, t0 = a["total_power_w"], a["timestamp"]
+                    p1, t1 = b["total_power_w"], b["timestamp"]
+                    e_j += 0.5 * (p0 + p1) * (t1 - t0)
+                stage_metrics.gpu_energy_joules = e_j
+
             self._nvml_poller = None
         
         # Stop CodeCarbon
@@ -312,6 +448,15 @@ class EnergyTracker:
             except Exception as e:
                 print(f"Warning: CodeCarbon stop failed: {e}")
             self._codecarbon_tracker = None
+        
+        # RAPL CPU energy
+        if self.track_cpu and self._rapl_reader is not None:
+            try:
+                deltas = self._rapl_reader.stop()
+                pkg_j = deltas.get("package", 0.0)
+                stage_metrics.cpu_energy_joules = pkg_j
+            except Exception as e:
+                print(f"[EnergyTracker] RAPL stop failed: {e}")
         
         # Compute derived metrics
         stage_metrics.compute_derived_metrics()
