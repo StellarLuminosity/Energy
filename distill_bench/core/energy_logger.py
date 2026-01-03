@@ -10,8 +10,6 @@ from pathlib import Path
 
 import torch
 from codecarbon import EmissionsTracker, OfflineEmissionsTracker
-from experiment_impact_tracker.compute_tracker import ImpactTracker
-from experiment_impact_tracker.data_interface import DataInterface
 import pynvml
 
 
@@ -36,11 +34,6 @@ class StageMetrics:
     codecarbon_energy_kwh: float = 0.0
     codecarbon_emissions_kg: float = 0.0
     
-    # experiment-impact-tracker metrics
-    impact_tracker_energy_kwh: float = 0.0
-    impact_tracker_cpu_energy_kwh: float = 0.0
-    impact_tracker_gpu_energy_kwh: float = 0.0
-    
     # Derived metrics
     joules_per_token: float = 0.0
     kwh_total: float = 0.0
@@ -64,7 +57,6 @@ class StageMetrics:
         # Combine energy sources for total kWh
         self.kwh_total = max(
             self.codecarbon_energy_kwh,
-            self.impact_tracker_energy_kwh,
             self.gpu_energy_joules / 3_600_000  # joules to kWh
         )
     
@@ -205,9 +197,7 @@ class EnergyTracker:
         
         # Tool instances (created per-stage)
         self._codecarbon_tracker: Optional[EmissionsTracker] = None
-        self._impact_tracker: Optional[ImpactTracker] = None
         self._nvml_poller: Optional[NVMLPoller] = None
-        self._impact_tracker_dir: Optional[Path] = None
         
         # Experiment metadata
         self.start_time = datetime.now().isoformat()
@@ -249,17 +239,6 @@ class EnergyTracker:
         except Exception as e:
             print(f"Warning: CodeCarbon start failed: {e}")
             self._codecarbon_tracker = None
-        
-        # Start experiment-impact-tracker
-        if self.track_cpu:
-            try:
-                self._impact_tracker_dir = self.energy_dir / "impact_tracker" / stage_name
-                self._impact_tracker_dir.mkdir(parents=True, exist_ok=True)
-                self._impact_tracker = ImpactTracker(str(self._impact_tracker_dir))
-                self._impact_tracker.launch_impact_monitor()
-            except Exception as e:
-                print(f"Warning: ImpactTracker start failed: {e}")
-                self._impact_tracker = None
         
         # Start NVML polling
         self._nvml_poller = NVMLPoller(poll_interval_ms=self.nvml_poll_interval_ms)
@@ -313,24 +292,6 @@ class EnergyTracker:
             except Exception as e:
                 print(f"Warning: CodeCarbon stop failed: {e}")
             self._codecarbon_tracker = None
-        
-        # Stop experiment-impact-tracker
-        if self._impact_tracker is not None:
-            try:
-                self._impact_tracker.stop()
-                # Read metrics from saved data
-                if self._impact_tracker_dir and self._impact_tracker_dir.exists():
-                    try:
-                        data_interface = DataInterface([str(self._impact_tracker_dir)])
-                        # total_power is average power in Watts; convert to kWh: (W * seconds) / 3600000
-                        duration_sec = stage_metrics.end_time - stage_metrics.start_time
-                        stage_metrics.impact_tracker_energy_kwh = (data_interface.total_power * duration_sec) / 3_600_000
-                    except Exception:
-                        pass  # Data might not be available yet
-            except Exception as e:
-                print(f"Warning: ImpactTracker stop failed: {e}")
-            self._impact_tracker = None
-            self._impact_tracker_dir = None
         
         # Compute derived metrics
         stage_metrics.compute_derived_metrics()

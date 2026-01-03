@@ -7,3 +7,6 @@ distill_bench/pipelines/__pycache__/
 distill_bench/core/__pycache__/
 distill_bench/data/__pycache__/
 __pycache__/
+.venv/
+run_script.sh
+scripts/
