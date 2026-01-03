@@ -10,3 +10,4 @@ __pycache__/
 .venv/
 run_script.sh
 scripts/
+tmp/
