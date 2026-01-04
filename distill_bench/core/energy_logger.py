@@ -1,3 +1,5 @@
+import os
+import csv
 import json
 import time
 import threading
@@ -10,6 +12,39 @@ from pathlib import Path
 import torch
 from codecarbon import EmissionsTracker, OfflineEmissionsTracker
 import pynvml
+
+
+def _infer_nvml_device_indices(device_count: int) -> List[int]:
+    """
+    Infer which NVML GPU indices to poll based on environment variables.
+    Handles common Slurm patterns + cgroup remapping.
+    """
+    cvd = os.environ.get("CUDA_VISIBLE_DEVICES")
+    if not cvd:
+        return list(range(device_count))
+
+    tokens = [t.strip() for t in cvd.split(",") if t.strip()]
+
+    # CUDA_VISIBLE_DEVICES can be UUID-form ("GPU-...") on some systems.
+    # If UUIDs are present, safest fallback is to poll visible indices only.
+    if any(t.startswith("GPU-") or t.startswith("MIG-") for t in tokens):
+        return list(range(device_count))
+
+    # Numeric form
+    try:
+        inds = [int(t) for t in tokens]
+    except ValueError:
+        return list(range(device_count))
+
+    # If cgroups/remapping expose only N GPUs, NVML count may be N, but CVD might still contain
+    # physical indices (rare) or logical ones. If any index is out of range, treat as remapped.
+    if not inds:
+        return list(range(device_count))
+    if max(inds) >= device_count:
+        return list(range(device_count))
+
+    # Otherwise treat as physical indices
+    return inds
 
 
 @dataclass
@@ -196,9 +231,17 @@ class NVMLPoller:
             # Get device handles
             device_count = pynvml.nvmlDeviceGetCount()
             if self.device_indices is None:
-                self.device_indices = list(range(device_count))
+                self.device_indices = _infer_nvml_device_indices(device_count)
 
             self._handles = [pynvml.nvmlDeviceGetHandleByIndex(i) for i in self.device_indices]
+
+            try:
+                uuids = []
+                for h in self._handles:
+                    uuids.append(pynvml.nvmlDeviceGetUUID(h))
+                print(f"[NVMLPoller] Polling GPUs: indices={self.device_indices}, uuids={uuids}")
+            except Exception:
+                pass
 
             self._stop_event.clear()
             self._thread = threading.Thread(target=self._poll_loop, daemon=True)
@@ -341,7 +384,6 @@ class EnergyTracker:
 
         self.current_stage = stage_name
         stage_metrics = StageMetrics(stage_name=stage_name)
-        stage_metrics.start_time = time.time()
         self.stages[stage_name] = stage_metrics
 
         # RAPL CPU energy
@@ -381,18 +423,20 @@ class EnergyTracker:
             print(f"Warning: CodeCarbon start failed: {e}")
             self._codecarbon_tracker = None
 
+        # Sync GPU before timing
+        if torch.cuda.is_available():
+            torch.cuda.synchronize()
+
         # Start NVML polling
         self._nvml_poller = NVMLPoller(poll_interval_ms=self.nvml_poll_interval_ms)
         self._nvml_poller.start()
         self._stage_start_readings = []
 
-        # Sync GPU before timing
-        if torch.cuda.is_available():
-            torch.cuda.synchronize()
+        stage_metrics.start_time = time.time()
 
         print(f"[EnergyTracker] Started stage: {stage_name}")
 
-    def end_stage(self, tokens_processed: int = 0) -> StageMetrics:
+    def end_stage(self, tokens_processed: Optional[int] = None) -> StageMetrics:
         """End current stage and collect metrics."""
         if self.current_stage is None:
             raise RuntimeError("No stage is currently running")
@@ -403,47 +447,74 @@ class EnergyTracker:
 
         stage_name = self.current_stage
         stage_metrics = self.stages[stage_name]
+        if tokens_processed is not None:
+            stage_metrics.tokens_processed = tokens_processed
         stage_metrics.end_time = time.time()
-        stage_metrics.tokens_processed = tokens_processed
+        stage_metrics.duration_seconds = stage_metrics.end_time - stage_metrics.start_time
 
         # Stop NVML and compute GPU energy
         if self._nvml_poller is not None:
             readings = self._nvml_poller.stop()
+            self._nvml_poller = None
 
             if readings:
-                # Sort by timestamp for consistent order
                 readings.sort(key=lambda r: r["timestamp"])
-
-                # Store raw total power samples (for logging)
                 stage_metrics.gpu_power_samples = [r["total_power_w"] for r in readings]
 
-                # Average and peak power
-                stage_metrics.gpu_avg_power_watts = sum(stage_metrics.gpu_power_samples) / len(stage_metrics.gpu_power_samples)
-                stage_metrics.gpu_peak_power_watts = max(stage_metrics.gpu_power_samples)
+                # Integrate power over the exact stage window [start_time, end_time]
+                start_t = stage_metrics.start_time
+                end_t = stage_metrics.end_time
 
-            # Integrate power over time using trapezoidal rule
-            if len(readings) >= 2:
+                def power_at(t: float) -> float:
+                    """
+                    Sample-and-hold power at time t using the last reading with timestamp <= t.
+                    If t is before the first reading, use the first reading's power.
+                    """
+                    p = readings[0]["total_power_w"]
+                    for r in readings:
+                        if r["timestamp"] <= t:
+                            p = r["total_power_w"]
+                        else:
+                            break
+                    return p
+
+                # Build a window aligned to stage boundaries to avoid edge undercount
+                window = [{"timestamp": start_t, "total_power_w": power_at(start_t)}]
+                for r in readings:
+                    ts = r["timestamp"]
+                    if start_t < ts < end_t:
+                        window.append({"timestamp": ts, "total_power_w": r["total_power_w"]})
+                window.append({"timestamp": end_t, "total_power_w": power_at(end_t)})
+
+                # Trapezoidal integration over the padded window
                 e_j = 0.0
-                for a, b in zip(readings, readings[1:]):
+                for a, b in zip(window, window[1:]):
                     p0, t0 = a["total_power_w"], a["timestamp"]
                     p1, t1 = b["total_power_w"], b["timestamp"]
-                    e_j += 0.5 * (p0 + p1) * (t1 - t0)
+                    dt = max(0.0, t1 - t0)
+                    e_j += 0.5 * (p0 + p1) * dt
+
                 stage_metrics.gpu_energy_joules = e_j
 
-            self._nvml_poller = None
+                # Avg/peak power (now duration + energy exist)
+                if stage_metrics.duration_seconds > 0:
+                    stage_metrics.gpu_avg_power_watts = stage_metrics.gpu_energy_joules / stage_metrics.duration_seconds
+                stage_metrics.gpu_peak_power_watts = max(stage_metrics.gpu_power_samples)
 
         # Stop CodeCarbon
         if self._codecarbon_tracker is not None:
+            codecarbon_dir = self.energy_dir / "codecarbon" / stage_name
             try:
                 emissions = self._codecarbon_tracker.stop()
                 if emissions is not None:
-                    stage_metrics.codecarbon_emissions_kg = emissions
-                # Read energy from tracker's internal state
-                if hasattr(self._codecarbon_tracker, "_total_energy"):
-                    stage_metrics.codecarbon_energy_kwh = self._codecarbon_tracker._total_energy.kWh
+                    stage_metrics.codecarbon_emissions_kg = float(emissions)
             except Exception as e:
                 print(f"Warning: CodeCarbon stop failed: {e}")
-            self._codecarbon_tracker = None
+            finally:
+                self._codecarbon_tracker = None
+
+            # Read energy from emissions.csv (no private attributes)
+            stage_metrics.codecarbon_energy_kwh = self._read_codecarbon_energy_kwh(codecarbon_dir)
 
         # RAPL CPU energy
         if self.track_cpu and self._rapl_reader is not None:
@@ -551,6 +622,38 @@ class EnergyTracker:
         metrics[f"{prefix}/overall_joules_per_token"] = summary["overall_joules_per_token"]
 
         return metrics
+
+    def _read_codecarbon_energy_kwh(self, codecarbon_dir: Path) -> float:
+        """
+        Read CodeCarbon's energy_consumed (kWh) from emissions.csv in codecarbon_dir.
+        Returns 0.0 if the file/field is missing.
+        """
+        emissions_csv = codecarbon_dir / "emissions.csv"
+
+        # Sometimes the filename can differ; try best-effort discovery
+        if not emissions_csv.exists():
+            candidates = [p for p in codecarbon_dir.glob("*.csv") if p.name.startswith("emissions")]
+            if candidates:
+                emissions_csv = sorted(candidates)[-1]
+            else:
+                return 0.0
+
+        try:
+            last_row = None
+            with open(emissions_csv, newline="") as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row:
+                        last_row = row
+
+            if not last_row:
+                return 0.0
+
+            # Per CodeCarbon docs, energy_consumed is in kWh. :contentReference[oaicite:0]{index=0}
+            val = last_row.get("energy_consumed", "")
+            return float(val) if val not in (None, "") else 0.0
+        except Exception:
+            return 0.0
 
     def _cleanup(self):
         """Cleanup resources on exit."""
