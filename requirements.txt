@@ -1,37 +1,23 @@
-# Core Dependencies
-torch>=2.6.0
-transformers>=4.36.0
+torch=2.6.0
+transformers==4.51.3
 datasets>=2.14.0
-trl>=0.7.0
+trl==0.17.0
 numpy>=1.24.0
 scipy>=1.10.0
 pandas<2.0
-
-# Additional Dependencies
 accelerate>=0.25.0
 huggingface-hub>=0.16.0
 safetensors>=0.4.0
-
-# Energy Tracking
 codecarbon
 nvidia-ml-py
 psutil
-
-# Configuration
 PyYAML>=6.0
-
-# Development
 black>=23.0.0
 pytest>=7.0.0
-
-# Note: CUDA/GPU specific packages should be installed based on your system configuration
-torch==2.6.0
 tornado==6.5.1
 tqdm==4.67.1
 traitlets==5.14.3
-transformers==4.51.3
 triton==3.2.0
-trl==0.17.0
 typing-inspection==0.4.0
 typing_extensions==4.13.2
 tzdata==2025.2
@@ -39,3 +25,4 @@ urllib3==2.4.0
 wcwidth==0.2.13
 xxhash==3.5.0
 yarl==1.20.0
+wandb

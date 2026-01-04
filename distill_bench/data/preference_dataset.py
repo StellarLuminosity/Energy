@@ -107,8 +107,11 @@ def generate_preference_dataset(
     teacher_model.eval()
 
     prompt_ds = _load_prompt_dataset(config)
+    # Shuffle with a fixed seed for determinism before subsetting.
+    prompt_seed = getattr(config, "seed", 42)
+    prompt_ds = prompt_ds.shuffle(seed=prompt_seed)
     if prompt_limit and len(prompt_ds) > prompt_limit:
-        prompt_ds = prompt_ds.select(range(prompt_limit), seed=config.seed)
+        prompt_ds = prompt_ds.select(range(prompt_limit))
 
     pairs: List[Dict] = []
     total_tokens = 0

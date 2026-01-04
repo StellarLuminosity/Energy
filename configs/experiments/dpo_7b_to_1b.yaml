@@ -24,7 +24,7 @@ dpo:
   beta: 0.1  # Temperature parameter for DPO loss
   # Teacher generation settings for preference pairs
   judge_labeling:
-    temperature: 0.0  # sampling temperature for teacher generations (set >0 for stochastic)
+    temperature: 0.7
     top_p: 0.9
     max_new_tokens: 256
     scoring_method: "likelihood"
