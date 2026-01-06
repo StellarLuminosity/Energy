@@ -51,6 +51,7 @@ def _infer_nvml_device_indices(device_count: int) -> List[int]:
 class StageMetrics:
     """Metrics collected for a single stage of the pipeline."""
 
+    stage_id: str
     stage_name: str
     start_time: float = 0.0
     end_time: float = 0.0
@@ -221,6 +222,7 @@ class NVMLPoller:
         self._thread: Optional[threading.Thread] = None
         self._handles: List[Any] = []
         self._initialized = False
+        self._lock = threading.Lock()
 
     def start(self):
         """Initialize NVML and start polling thread."""
@@ -267,7 +269,8 @@ class NVMLPoller:
 
                 powers["timestamp"] = timestamp
                 powers["total_power_w"] = total_power
-                self.power_readings.append(powers)
+                with self._lock:
+                    self.power_readings.append(powers)
 
             except pynvml.NVMLError:
                 pass  # Skip failed readings
@@ -281,20 +284,15 @@ class NVMLPoller:
             self._thread.join(timeout=2.0)
             self._thread = None
 
-        if self._initialized:
-            try:
-                pynvml.nvmlShutdown()
-            except pynvml.NVMLError:
-                pass
-            self._initialized = False
-
-        readings = self.power_readings.copy()
-        self.power_readings.clear()
+        with self._lock:
+            readings = self.power_readings.copy()
+            self.power_readings.clear()
         return readings
 
     def get_current_readings(self) -> List[Dict[str, float]]:
         """Get readings collected so far without stopping."""
-        return self.power_readings.copy()
+        with self._lock:
+            return self.power_readings.copy()
 
 
 class EnergyTracker:
@@ -332,6 +330,8 @@ class EnergyTracker:
         self.output_dir = Path(output_dir)
         self.config = config
 
+        self._stage_counts: Dict[str, int] = {}
+
         def _cfg(explicit: Any, attr_name: str, dotted: str, default: Any) -> Any:
             """Prefer explicit argument, then config attributes, then nested get(), else fallback."""
             if explicit is not None:
@@ -354,6 +354,7 @@ class EnergyTracker:
         self.track_cpu = _cfg(track_cpu, "energy_track_cpu", "energy.track_cpu", True)
         rapl_root_val = _cfg(rapl_root, "energy_rapl_root", "energy.rapl_root", "/sys/class/powercap/intel-rapl")
         self.rapl_root = Path(rapl_root_val)
+        self.total_energy_policy = _cfg(None, "energy_total_policy", "energy.total_energy_policy", "measured"))
 
         # Create output directories
         self.energy_dir = self.output_dir / "energy_logs"
@@ -362,7 +363,6 @@ class EnergyTracker:
         # Stage tracking
         self.stages: Dict[str, StageMetrics] = {}
         self.current_stage: Optional[str] = None
-        self._stage_start_readings: List[Dict] = []
 
         # Tool instances (created per-stage)
         self._codecarbon_tracker: Optional[EmissionsTracker] = None
@@ -382,23 +382,31 @@ class EnergyTracker:
             print(f"Warning: Stage '{self.current_stage}' still running. Ending it first.")
             self.end_stage()
 
-        self.current_stage = stage_name
-        stage_metrics = StageMetrics(stage_name=stage_name)
-        self.stages[stage_name] = stage_metrics
+        n = self._stage_counts.get(stage_name, 0) + 1
+        self._stage_counts[stage_name] = n
+        stage_id = stage_name if n == 1 else f"{stage_name}__{n}"
+
+        self.current_stage = stage_id
+        stage_metrics = StageMetrics(stage_id=stage_id, stage_name=stage_name)
+        self.stages[stage_id] = stage_metrics
 
         # RAPL CPU energy
         if self.track_cpu and self._rapl_reader is not None:
-            try:
-                if self._rapl_reader.available:
-                    try:
-                        self._rapl_reader.start()
-                    except Exception as e:
-                        print(f"[EnergyTracker] RAPL unavailable: {e}")
-                        self.track_cpu = False
-                else:
-                    print(f"[EnergyTracker] RAPL root missing at {self.rapl_root}; skipping CPU energy.")
-            except Exception as e:
-                print(f"[EnergyTracker] RAPL start failed: {e}")
+            if not self._rapl_reader.available:
+                # Disable permanently to avoid repeated warnings / overhead
+                self.track_cpu = False
+                self._rapl_reader = None
+            else:
+                try:
+                    self._rapl_reader.start()
+                except PermissionError as e:
+                    print(f"[EnergyTracker] RAPL permission denied; disabling CPU energy. ({e})")
+                    self.track_cpu = False
+                    self._rapl_reader = None
+                except Exception as e:
+                    print(f"[EnergyTracker] RAPL start failed; disabling CPU energy. ({e})")
+                    self.track_cpu = False
+                    self._rapl_reader = None
 
         # Start CodeCarbon
         try:
@@ -430,7 +438,6 @@ class EnergyTracker:
         # Start NVML polling
         self._nvml_poller = NVMLPoller(poll_interval_ms=self.nvml_poll_interval_ms)
         self._nvml_poller.start()
-        self._stage_start_readings = []
 
         stage_metrics.start_time = time.time()
 
@@ -445,8 +452,8 @@ class EnergyTracker:
         if torch.cuda.is_available():
             torch.cuda.synchronize()
 
-        stage_name = self.current_stage
-        stage_metrics = self.stages[stage_name]
+        stage_id = self.current_stage
+        stage_metrics = self.stages[stage_id]
         if tokens_processed is not None:
             stage_metrics.tokens_processed = tokens_processed
         stage_metrics.end_time = time.time()
@@ -503,7 +510,7 @@ class EnergyTracker:
 
         # Stop CodeCarbon
         if self._codecarbon_tracker is not None:
-            codecarbon_dir = self.energy_dir / "codecarbon" / stage_name
+            codecarbon_dir = self.energy_dir / "codecarbon" / stage_id
             try:
                 emissions = self._codecarbon_tracker.stop()
                 if emissions is not None:
@@ -529,27 +536,27 @@ class EnergyTracker:
         stage_metrics.compute_derived_metrics()
 
         # Save stage metrics to JSON
-        stage_file = self.energy_dir / f"stage_{stage_name}.json"
+        stage_file = self.energy_dir / f"stage_{stage_id}.json"
         with open(stage_file, "w") as f:
             json.dump(stage_metrics.to_dict(), f, indent=2)
 
         # Also save raw power samples if available
         if stage_metrics.gpu_power_samples:
-            samples_file = self.energy_dir / f"stage_{stage_name}_power_samples.json"
+            samples_file = self.energy_dir / f"stage_{stage_id}_power_samples.json"
             with open(samples_file, "w") as f:
                 json.dump(
                     {
-                        "stage": stage_name,
+                        "stage": stage_id,
                         "poll_interval_ms": self.nvml_poll_interval_ms,
                         "samples": stage_metrics.gpu_power_samples,
                     },
                     f,
                 )
 
-        print(f"[EnergyTracker] Ended stage: {stage_name}")
+        print(f"[EnergyTracker] Ended stage: {stage_id}")
         print(f"  Duration: {stage_metrics.duration_seconds:.2f}s")
         print(f"  GPU Energy: {stage_metrics.gpu_energy_joules:.2f} J")
-        print(f"  Tokens: {tokens_processed}, Joules/token: {stage_metrics.joules_per_token:.4f}")
+        print(f"  Tokens: {stage_metrics.tokens_processed}, Joules/token: {stage_metrics.joules_per_token:.4f}")
 
         self.current_stage = None
         return stage_metrics
@@ -638,22 +645,22 @@ class EnergyTracker:
             else:
                 return 0.0
 
-        try:
-            last_row = None
-            with open(emissions_csv, newline="") as f:
-                reader = csv.DictReader(f)
-                for row in reader:
-                    if row:
-                        last_row = row
+        for _ in range(5):  # in case emissions.csv isn't fully written yet
+            try:
+                last_row = None
+                with open(emissions_csv, newline="") as f:
+                    reader = csv.DictReader(f)
+                    for row in reader:
+                        if row:
+                            last_row = row
+                if last_row:
+                    val = last_row.get("energy_consumed", "")
+                    return float(val) if val not in (None, "") else 0.0
+            except Exception:
+                pass
+            time.sleep(0.1)
 
-            if not last_row:
-                return 0.0
-
-            # Per CodeCarbon docs, energy_consumed is in kWh. :contentReference[oaicite:0]{index=0}
-            val = last_row.get("energy_consumed", "")
-            return float(val) if val not in (None, "") else 0.0
-        except Exception:
-            return 0.0
+        return 0.0
 
     def _cleanup(self):
         """Cleanup resources on exit."""
