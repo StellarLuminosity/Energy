@@ -80,7 +80,7 @@ class StageMetrics:
     kwh_total: float = 0.0
     tokens_per_second: float = 0.0
 
-    def compute_derived_metrics(self):
+    def compute_derived_metrics(self, total_energy_policy: str = "measured"):
         """Compute derived metrics after stage completion."""
         self.duration_seconds = self.end_time - self.start_time
 
@@ -92,13 +92,19 @@ class StageMetrics:
         cc_kwh = self.codecarbon_energy_kwh
         cc_j = cc_kwh * 3_600_000 if cc_kwh > 0 else 0.0
 
-        # Total energy: prefer measured GPU + CPU; otherwise fall back to CodeCarbon.
-        if gpu_j > 0 or cpu_j > 0:
-            self.total_energy_joules = gpu_j + cpu_j
-        elif cc_j > 0:
+        # Total energy selection policy
+        if total_energy_policy == "codecarbon" and cc_j > 0:
             self.total_energy_joules = cc_j
+        elif total_energy_policy == "gpu_only" and gpu_j > 0:
+            self.total_energy_joules = gpu_j
         else:
-            self.total_energy_joules = 0.0
+            # "measured": prefer measured GPU+CPU; else fall back to CodeCarbon
+            if gpu_j > 0 or cpu_j > 0:
+                self.total_energy_joules = gpu_j + cpu_j
+            elif cc_j > 0:
+                self.total_energy_joules = cc_j
+            else:
+                self.total_energy_joules = 0.0
 
         self.total_energy_kwh = self.total_energy_joules / 3_600_000 if self.total_energy_joules > 0 else 0.0
 
@@ -354,7 +360,7 @@ class EnergyTracker:
         self.track_cpu = _cfg(track_cpu, "energy_track_cpu", "energy.track_cpu", True)
         rapl_root_val = _cfg(rapl_root, "energy_rapl_root", "energy.rapl_root", "/sys/class/powercap/intel-rapl")
         self.rapl_root = Path(rapl_root_val)
-        self.total_energy_policy = _cfg(None, "energy_total_policy", "energy.total_energy_policy", "measured"))
+        self.total_energy_policy = _cfg(None, "energy_total_policy", "energy.total_energy_policy", "measured")
 
         # Create output directories
         self.energy_dir = self.output_dir / "energy_logs"
@@ -418,13 +424,13 @@ class EnergyTracker:
                     project_name=f"{self.experiment_name}_{stage_name}",
                     output_dir=str(codecarbon_dir),
                     country_iso_code=self.country_iso_code,
-                    log_level="warning",
+                    log_level="error",
                 )
             else:
                 self._codecarbon_tracker = EmissionsTracker(
                     project_name=f"{self.experiment_name}_{stage_name}",
                     output_dir=str(codecarbon_dir),
-                    log_level="warning",
+                    log_level="error",
                 )
             self._codecarbon_tracker.start()
         except Exception as e:
@@ -533,7 +539,7 @@ class EnergyTracker:
                 print(f"[EnergyTracker] RAPL stop failed: {e}")
 
         # Compute derived metrics
-        stage_metrics.compute_derived_metrics()
+        stage_metrics.compute_derived_metrics(total_energy_policy=self.total_energy_policy)
 
         # Save stage metrics to JSON
         stage_file = self.energy_dir / f"stage_{stage_id}.json"

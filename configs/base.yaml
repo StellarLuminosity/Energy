@@ -58,6 +58,7 @@ energy:
   country_iso_code: "USA"
   offline_mode: true
   rapl_root: "/sys/class/powercap/intel-rapl"
+  total_energy_policy: "measured" # allowed: "measured" (default), "codecarbon", "gpu_only"
 
 # Weights & Biases logging
 wandb:
