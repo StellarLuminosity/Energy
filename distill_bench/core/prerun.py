@@ -127,15 +127,10 @@ def measure_idle_baseline(
     output_dir: Optional[str] = None,
 ) -> IdleBaseline:
     """
-    Measure idle GPU power.
+    Measure idle GPU power for baseline calculation.
 
-    Args:
-        duration_minutes: How long to measure (default 5 minutes)
-        poll_interval_ms: Power polling interval in milliseconds
-        output_dir: Optional directory to save raw power readings
-
-    Returns:
-        IdleBaseline with statistics
+    This helps calculate net energy by subtracting the idle power consumption
+    from active training power consumption.
     """
     print("\n" + "=" * 70)
     print("IDLE BASELINE MEASUREMENT")
@@ -151,11 +146,12 @@ def measure_idle_baseline(
     start_time = time.time()
     duration_seconds = duration_minutes * 60
 
-    while time.time() - start_time < duration_seconds:
-        time.sleep(1)
-
-    # Stop poller and get readings
-    readings = poller.stop()
+    try:
+        while time.time() - start_time < duration_seconds:
+            time.sleep(1)
+    finally:
+        # Always stop the poller even if something raises
+        readings = poller.stop()
 
     if not readings:
         raise RuntimeError("Failed to collect any power readings during idle baseline")
@@ -171,13 +167,33 @@ def measure_idle_baseline(
 
     stable = True
     reasons = []
+
     if std_power > IDLE_MAX_STD_WATTS:
         stable = False
         reasons.append(f"std {std_power:.2f}W > {IDLE_MAX_STD_WATTS:.2f}W")
     if spike_over_mean > IDLE_MAX_SPIKE_OVER_MEAN_WATTS:
         stable = False
         reasons.append(f"max-mean {spike_over_mean:.2f}W > {IDLE_MAX_SPIKE_OVER_MEAN_WATTS:.2f}W")
-    stability_reason = "ok" if stable else "; ".join(reasons)
+
+    # Extra check: other processes on GPUs during "idle" window
+    try:
+        pynvml.nvmlInit()
+        device_count = pynvml.nvmlDeviceGetCount()
+        busy_gpus = []
+        for i in range(device_count):
+            handle = pynvml.nvmlDeviceGetHandleByIndex(i)
+            procs = pynvml.nvmlDeviceGetComputeRunningProcesses(handle)
+            if procs:
+                busy_gpus.append(i)
+        pynvml.nvmlShutdown()
+
+        if busy_gpus:
+            stable = False
+            reasons.append(f"GPU(s) {busy_gpus} had running compute processes during idle baseline")
+    except Exception:
+        pass
+
+    stability_reason = "ok" if stable else "; ".join(reasons) if reasons else "unknown"
 
     baseline = IdleBaseline(
         duration_seconds=duration_seconds,
@@ -202,25 +218,20 @@ def measure_idle_baseline(
     if output_dir:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
-
         baseline_file = output_path / "idle_baseline.json"
+        payload = baseline.to_dict()
+        payload.update(
+            {
+                "poll_interval_ms": poll_interval_ms,
+                "duration_seconds": duration_seconds,
+                "readings": readings,
+                "power_samples": powers,
+            }
+        )
         with open(baseline_file, "w") as f:
-            json.dump(baseline.to_dict(), f, indent=2)
-
-        readings_file = output_path / "idle_baseline_readings.json"
-        with open(readings_file, "w") as f:
-            json.dump(
-                {
-                    "poll_interval_ms": poll_interval_ms,
-                    "duration_seconds": duration_seconds,
-                    "readings": readings,
-                    "power_samples": powers,
-                },
-                f,
-            )
+            json.dump(payload, f, indent=2)
 
         print(f"\n  Saved to: {baseline_file}")
-
     print("=" * 70)
 
     return baseline
@@ -243,17 +254,6 @@ def run_burn_in_test(
     - Energy tracking initializes correctly
     - Logs are written properly
     - GPU utilization is reasonable
-
-    Args:
-        output_dir: Directory for energy logs
-        num_steps: Number of training steps (default 500)
-        batch_size: Batch size for dummy training
-        seq_length: Sequence length for dummy data
-        model_dim: Model hidden dimension
-        num_layers: Number of transformer layers
-
-    Returns:
-        BurnInResult with validation outcomes
     """
     print("\n" + "=" * 70)
     print("BURN-IN TEST")
@@ -261,7 +261,7 @@ def run_burn_in_test(
     print(f"Steps: {num_steps}, Batch Size: {batch_size}, Seq Length: {seq_length}")
     print()
 
-    warnings_list = []
+    warnings_list: List[str] = []
 
     # Create dummy model
     if not torch.cuda.is_available():
@@ -272,15 +272,16 @@ def run_burn_in_test(
 
     print(f"  Creating dummy model on {device}...")
 
-    # Simple transformer-like model
+    VOCAB_SIZE = 8192
+
     class DummyModel(nn.Module):
         def __init__(self, dim, num_layers):
             super().__init__()
-            self.embedding = nn.Embedding(50000, dim)
+            self.embedding = nn.Embedding(VOCAB_SIZE, dim)
             self.layers = nn.ModuleList(
                 [nn.TransformerEncoderLayer(d_model=dim, nhead=8, batch_first=True) for _ in range(num_layers)]
             )
-            self.lm_head = nn.Linear(dim, 50000)
+            self.lm_head = nn.Linear(dim, VOCAB_SIZE)
 
         def forward(self, input_ids):
             x = self.embedding(input_ids)
@@ -292,10 +293,24 @@ def run_burn_in_test(
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
     criterion = nn.CrossEntropyLoss()
 
-    burn_in_dir = Path(output_dir)
-    burn_in_dir.mkdir(parents=True, exist_ok=True)
+    # Untracked warm-up to stabilize kernels and clocks
+    if device.type == "cuda":
+        print("  Running untracked warm-up steps...")
+        model.train()
+        warmup_steps = min(10, max(1, num_steps // 10))
+        for _ in range(warmup_steps):
+            input_ids = torch.randint(0, VOCAB_SIZE, (batch_size, seq_length), device=device)
+            labels = torch.randint(0, VOCAB_SIZE, (batch_size, seq_length), device=device)
+            logits = model(input_ids)
+            loss = criterion(logits.reshape(-1, VOCAB_SIZE), labels.reshape(-1))
+            optimizer.zero_grad()
+            loss.backward()
+            optimizer.step()
+        torch.cuda.synchronize()
 
     # Create energy tracker
+    burn_in_dir = Path(output_dir)
+    burn_in_dir.mkdir(parents=True, exist_ok=True)
     tracker = EnergyTracker(
         output_dir=str(burn_in_dir),
         experiment_name=getattr(config, "experiment_name", "burn_in_test") if config else "burn_in_test",
@@ -309,16 +324,16 @@ def run_burn_in_test(
     start_time = time.time()
     total_tokens = 0
 
-    # Training loop
+    # Training loop (tracked)
     print(f"  Running {num_steps} training steps...")
     for step in range(num_steps):
         # Generate random input
-        input_ids = torch.randint(0, 50000, (batch_size, seq_length), device=device)
-        labels = torch.randint(0, 50000, (batch_size, seq_length), device=device)
+        input_ids = torch.randint(0, VOCAB_SIZE, (batch_size, seq_length), device=device)
+        labels = torch.randint(0, VOCAB_SIZE, (batch_size, seq_length), device=device)
 
         # Forward pass
         logits = model(input_ids)
-        loss = criterion(logits.reshape(-1, 50000), labels.reshape(-1))
+        loss = criterion(logits.reshape(-1, VOCAB_SIZE), labels.reshape(-1))
 
         # Backward pass
         optimizer.zero_grad()
@@ -328,19 +343,17 @@ def run_burn_in_test(
         total_tokens += batch_size * seq_length
 
         # Print progress
-        if (step + 1) % 100 == 0:
+        if (step + 1) % 100 == 0 or (step + 1) == num_steps:
             print(f"    Step {step + 1}/{num_steps}, Loss: {loss.item():.4f}")
 
     # End tracking
     print("  Ending energy tracking...")
-    if device.type == "cuda":
-        torch.cuda.synchronize()
     stage_metrics = tracker.end_stage(tokens_processed=total_tokens)
     duration = time.time() - start_time
 
     # Validate energy logs were written
     energy_logs_valid = True
-    stage_file = output_dir / "energy_logs" / "stage_burn_in.json"
+    stage_file = burn_in_dir / "energy_logs" / "stage_burn_in.json"
 
     if not stage_file.exists():
         warnings_list.append(f"Energy log file not found: {stage_file}")
@@ -350,7 +363,7 @@ def run_burn_in_test(
             with open(stage_file, "r") as f:
                 log_data = json.load(f)
             if log_data.get("gpu_energy_joules", 0) == 0:
-                warnings_list.append("GPU energy is zero in logs - check NVML")
+                warnings_list.append("GPU energy is zero in logs - check NVML and GPU visibility")
         except Exception as e:
             warnings_list.append(f"Failed to read energy log: {e}")
             energy_logs_valid = False
@@ -359,13 +372,12 @@ def run_burn_in_test(
     tokens_per_sec = stage_metrics.tokens_per_second
     expected_min_tps = 1000  # Very conservative minimum
 
-    if tokens_per_sec < expected_min_tps:
+    if tokens_per_sec < expected_min_tps and device.type == "cuda":
         warnings_list.append(f"Low throughput: {tokens_per_sec:.0f} tokens/sec (expected > {expected_min_tps})")
 
     # Estimate GPU utilization from power
     avg_gpu_util = 0.0
     if torch.cuda.is_available():
-        # Very rough heuristic: assume max power ~ 100% util
         try:
             pynvml.nvmlInit()
             handle = pynvml.nvmlDeviceGetHandleByIndex(0)
@@ -373,9 +385,13 @@ def run_burn_in_test(
             power_limit_w = power_limit_mw / 1000.0
             pynvml.nvmlShutdown()
 
-            avg_gpu_util = (stage_metrics.gpu_avg_power_watts / power_limit_w) * 100
+            if power_limit_w > 0:
+                avg_gpu_util = (stage_metrics.gpu_avg_power_watts / power_limit_w) * 100
         except Exception:
-            warnings_list.append("Failed to estimate GPU utilization")
+            warnings_list.append("Failed to estimate GPU utilization from NVML")
+
+    if device.type != "cuda":
+        warnings_list.append("Burn-in ran on CPU; GPU energy logging was not validated.")
 
     result = BurnInResult(
         num_steps=num_steps,
@@ -400,6 +416,12 @@ def run_burn_in_test(
         for warning in result.warnings:
             print(f"    - {warning}")
 
+    # Save burn-in summary as JSON for reproducible inspection
+    summary_file = burn_in_dir / "burn_in_result.json"
+    with open(summary_file, "w") as f:
+        json.dump(result.to_dict(), f, indent=2)
+    print(f"\n  Burn-in summary saved to: {summary_file}")
+
     print("=" * 70)
 
     return result
@@ -412,15 +434,8 @@ def validate_sampling_interval(
     """
     Validate that different sampling intervals produce consistent energy estimates.
 
-    Runs a simple GPU workload with two different polling intervals (1s and 15s)
+    Runs a simple GPU workload with two different polling intervals (1s and 2s)
     and checks that the energy estimates converge.
-
-    Args:
-        output_dir: Directory for logs
-        test_duration_seconds: Duration of test workload (default 60s)
-
-    Returns:
-        SamplingIntervalResult with comparison
     """
     print("\n" + "=" * 70)
     print("SAMPLING INTERVAL VALIDATION")
@@ -438,67 +453,86 @@ def validate_sampling_interval(
             recommended_interval_ms=1000,
         )
 
-    # Create a simple GPU workload
     device = torch.device("cuda:0")
     matrix_size = 4096
+    output_path = Path(output_dir)
+    output_path.mkdir(parents=True, exist_ok=True)
 
-    def run_workload(duration_sec, poll_interval_ms):
-        """Run matrix multiplications for specified duration."""
+    # Untracked warm-up workload
+    print("  Running short warm-up workload (untracked)...")
+    warmup_end = time.time() + min(10.0, test_duration_seconds / 3.0)
+    while time.time() < warmup_end:
+        a = torch.randn(matrix_size, matrix_size, device=device)
+        b = torch.randn(matrix_size, matrix_size, device=device)
+        _ = torch.mm(a, b)
+    torch.cuda.synchronize()
+
+    def run_workload(duration_sec: float, poll_interval_ms: int, label: str) -> float:
+        """Run matrix multiplications for specified duration and integrate power via timestamps."""
         poller = NVMLPoller(poll_interval_ms=poll_interval_ms)
         poller.start()
 
-        start_time = time.time()
-        while time.time() - start_time < duration_sec:
-            # Matrix multiplication to keep GPU busy
-            a = torch.randn(matrix_size, matrix_size, device=device)
-            b = torch.randn(matrix_size, matrix_size, device=device)
-            c = torch.mm(a, b)
-            del a, b, c
+        try:
+            start_t = time.time()
+            while time.time() - start_t < duration_sec:
+                a = torch.randn(matrix_size, matrix_size, device=device)
+                b = torch.randn(matrix_size, matrix_size, device=device)
+                _ = torch.mm(a, b)
+            torch.cuda.synchronize()
+        finally:
+            readings = poller.stop()
 
-        torch.cuda.synchronize()
-        readings = poller.stop()
-
-        # Calculate energy
         if not readings:
             return 0.0
 
-        powers = [r["total_power_w"] for r in readings]
-        interval_sec = poll_interval_ms / 1000.0
-        energy_joules = sum(powers) * interval_sec
+        # Sort by timestamp and trapezoid-integrate P(t)
+        readings.sort(key=lambda r: r["timestamp"])
+        energy_joules = 0.0
+        for prev, cur in zip(readings, readings[1:]):
+            dt = max(0.0, cur["timestamp"] - prev["timestamp"])
+            energy_joules += 0.5 * (prev["total_power_w"] + cur["total_power_w"]) * dt
+
+        # Save raw readings for this interval
+        readings_file = output_path / f"{label}_readings.json"
+        with open(readings_file, "w") as f:
+            json.dump(
+                {
+                    "label": label,
+                    "poll_interval_ms": poll_interval_ms,
+                    "duration_seconds": duration_sec,
+                    "readings": readings,
+                },
+                f,
+                indent=2,
+            )
+        print(f"    Saved raw readings to: {readings_file}")
 
         return energy_joules
 
     # Test with 1s interval
     print("  Testing with 1000ms polling interval...")
-    energy_1s = run_workload(test_duration_seconds, poll_interval_ms=1000)
+    energy_1s = run_workload(test_duration_seconds, poll_interval_ms=1000, label="interval_1000ms")
     print(f"    Energy: {energy_1s:.2f} J")
 
     # Small cooldown
     time.sleep(2)
 
-    # Test with 15s interval
-    print("  Testing with 15000ms polling interval...")
-    energy_15s = run_workload(test_duration_seconds, poll_interval_ms=15000)
-    print(f"    Energy: {energy_15s:.2f} J")
+    print("  Testing with 2000ms polling interval...")
+    energy_2s = run_workload(test_duration_seconds, poll_interval_ms=2000, label="interval_2000ms")
+    print(f"    Energy: {energy_2s:.2f} J")
 
     # Calculate difference
     if energy_1s > 0:
-        diff_percent = abs(energy_1s - energy_15s) / energy_1s * 100
+        diff_percent = abs(energy_1s - energy_2s) / energy_1s * 100
     else:
         diff_percent = 0.0
 
-    # Check convergence (allow up to 10% difference)
     converged = diff_percent < 10.0
-
-    # Recommend interval based on convergence
-    if converged:
-        recommended_ms = 1000  # 1s is fine
-    else:
-        recommended_ms = 500  # Use shorter interval for better accuracy
+    recommended_ms = 1000 if converged else 500
 
     result = SamplingIntervalResult(
         interval_1s_energy_joules=energy_1s,
-        interval_15s_energy_joules=energy_15s,
+        interval_15s_energy_joules=energy_2s,
         difference_percent=diff_percent,
         converged=converged,
         recommended_interval_ms=recommended_ms,
@@ -506,7 +540,7 @@ def validate_sampling_interval(
 
     print("\n--- Sampling Interval Results ---")
     print(f"  1s interval: {energy_1s:.2f} J")
-    print(f"  15s interval: {energy_15s:.2f} J")
+    print(f"  2s interval: {energy_2s:.2f} J")
     print(f"  Difference: {diff_percent:.2f}%")
     print(f"  Converged: {converged}")
     print(f"  Recommended: {recommended_ms}ms")
@@ -514,6 +548,12 @@ def validate_sampling_interval(
     if not converged:
         print("\n  ⚠ Warning: Large difference between intervals!")
         print(f"    Consider using {recommended_ms}ms polling interval")
+
+    # Save summary JSON
+    summary_file = output_path / "sampling_interval_result.json"
+    with open(summary_file, "w") as f:
+        json.dump(result.to_dict(), f, indent=2)
+    print(f"\n  Sampling interval summary saved to: {summary_file}")
 
     print("=" * 70)
 
@@ -530,22 +570,14 @@ def validate_hardware(
 
     Checks:
     - GPU type matches expected (if specified)
-    - VRAM is sufficient for workload
-    - GPU count
-
-    Args:
-        expected_gpu_type: Expected GPU name (e.g., "A100", "H100")
-        expected_vram_gb: Expected VRAM in GB
-        min_vram_gb: Minimum required VRAM in GB
-
-    Returns:
-        HardwareValidation with checks
+    - VRAM is sufficient for workload (based on min VRAM across GPUs)
+    - GPU count and heterogeneity
     """
     print("\n" + "=" * 70)
     print("HARDWARE VALIDATION")
     print("=" * 70)
 
-    warnings_list = []
+    warnings_list: List[str] = []
 
     # Collect GPU info
     gpus = collect_gpu_info()
@@ -563,26 +595,37 @@ def validate_hardware(
             warnings=warnings_list,
         )
 
-    # Use first GPU for checks
-    gpu = gpus[0]
-    actual_gpu_type = gpu["name"]
-    actual_vram_gb = gpu["memory_total_mb"] / 1024.0
     gpu_count = len(gpus)
+    gpu_types = {g["name"] for g in gpus}
+    # Representative type: first GPU
+    actual_gpu_type = gpus[0]["name"]
+    # Use minimum VRAM across GPUs as the safe bound
+    vram_values_gb = [g["memory_total_mb"] / 1024.0 for g in gpus]
+    actual_vram_gb = min(vram_values_gb)
 
-    # Check GPU type match
+    # Check GPU type match (all GPUs should match expected)
     gpu_match = True
     if expected_gpu_type:
-        if expected_gpu_type.lower() not in actual_gpu_type.lower():
-            gpu_match = False
-            warnings_list.append(f"GPU mismatch: expected '{expected_gpu_type}', got '{actual_gpu_type}'")
+        for t in gpu_types:
+            if expected_gpu_type.lower() not in t.lower():
+                gpu_match = False
+        if not gpu_match:
+            warnings_list.append(
+                f"GPU mismatch: expected '{expected_gpu_type}' on all devices, " f"but detected types: {sorted(gpu_types)}"
+            )
+
+    if len(gpu_types) > 1:
+        warnings_list.append(f"Heterogeneous GPU types detected: {sorted(gpu_types)}")
 
     # Check VRAM
     vram_sufficient = actual_vram_gb >= min_vram_gb
     if not vram_sufficient:
-        warnings_list.append(f"Insufficient VRAM: {actual_vram_gb:.1f} GB < {min_vram_gb:.1f} GB required")
+        warnings_list.append(f"Insufficient VRAM: minimum across GPUs is {actual_vram_gb:.1f} GB < {min_vram_gb:.1f} GB required")
 
     if expected_vram_gb and abs(actual_vram_gb - expected_vram_gb) > 2.0:
-        warnings_list.append(f"VRAM differs from expected: {actual_vram_gb:.1f} GB vs {expected_vram_gb:.1f} GB")
+        warnings_list.append(
+            f"VRAM differs from expected: min across GPUs is {actual_vram_gb:.1f} GB vs {expected_vram_gb:.1f} GB"
+        )
 
     result = HardwareValidation(
         expected_gpu_type=expected_gpu_type,
@@ -596,12 +639,12 @@ def validate_hardware(
     )
 
     print(f"\n  GPU Count: {gpu_count}")
-    print(f"  GPU Type: {actual_gpu_type}")
-    print(f"  VRAM: {actual_vram_gb:.1f} GB")
+    print(f"  GPU Types: {', '.join(sorted(gpu_types))}")
+    print(f"  Min VRAM across GPUs: {actual_vram_gb:.1f} GB")
 
     if expected_gpu_type:
         print(f"  Expected GPU: {expected_gpu_type}")
-        print(f"  Match: {gpu_match}")
+        print(f"  Match on all devices: {gpu_match}")
 
     print(f"  VRAM Sufficient: {vram_sufficient} (min {min_vram_gb:.1f} GB)")
 
