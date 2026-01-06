@@ -127,10 +127,7 @@ def measure_idle_baseline(
     output_dir: Optional[str] = None,
 ) -> IdleBaseline:
     """
-    Measure idle GPU power for baseline calculation.
-
-    This helps calculate net energy by subtracting the idle power consumption
-    from active training power consumption.
+    Measure idle GPU power.
 
     Args:
         duration_minutes: How long to measure (default 5 minutes)
@@ -154,15 +151,7 @@ def measure_idle_baseline(
     start_time = time.time()
     duration_seconds = duration_minutes * 60
 
-    # Print progress periodically
-    last_print = start_time
     while time.time() - start_time < duration_seconds:
-        current_time = time.time()
-        if current_time - last_print >= 30:  # Print every 30 seconds
-            elapsed = current_time - start_time
-            remaining = duration_seconds - elapsed
-            print(f"  Progress: {elapsed:.0f}s / {duration_seconds:.0f}s (remaining: {remaining:.0f}s)")
-            last_print = current_time
         time.sleep(1)
 
     # Stop poller and get readings
@@ -303,8 +292,10 @@ def run_burn_in_test(
     optimizer = torch.optim.AdamW(model.parameters(), lr=1e-4)
     criterion = nn.CrossEntropyLoss()
 
+    burn_in_dir = Path(output_dir)
+    burn_in_dir.mkdir(parents=True, exist_ok=True)
+
     # Create energy tracker
-    burn_in_dir = Path(output_dir) / "burn_in"
     tracker = EnergyTracker(
         output_dir=str(burn_in_dir),
         experiment_name=getattr(config, "experiment_name", "burn_in_test") if config else "burn_in_test",
@@ -342,12 +333,14 @@ def run_burn_in_test(
 
     # End tracking
     print("  Ending energy tracking...")
+    if device.type == "cuda":
+        torch.cuda.synchronize()
     stage_metrics = tracker.end_stage(tokens_processed=total_tokens)
     duration = time.time() - start_time
 
     # Validate energy logs were written
     energy_logs_valid = True
-    stage_file = burn_in_dir / "energy_logs" / "stage_burn_in.json"
+    stage_file = output_dir / "energy_logs" / "stage_burn_in.json"
 
     if not stage_file.exists():
         warnings_list.append(f"Energy log file not found: {stage_file}")
@@ -716,7 +709,7 @@ def run_prerun_validation(
     else:
         print("\nStep 3/4: Burn-in Test")
         burn_in = run_burn_in_test(
-            output_dir=str(output_path / "burn_in"),
+            output_dir=Path(output_path),
             num_steps=burn_in_steps,
             config=config,
         )
