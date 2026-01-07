@@ -25,6 +25,7 @@ import pynvml
 
 from .energy_logger import EnergyTracker, NVMLPoller
 from .environment import collect_environment, collect_gpu_info
+from .utils import _write_json
 
 # Heuristic thresholds for idle baseline stability
 IDLE_MAX_STD_WATTS = 1.0  # std dev <= 1 W
@@ -186,9 +187,7 @@ def _print_prerun_summary(report: PreRunReport, report_file: Path):
     if sampling_skipped:
         print("  Status        : skipped")
     else:
-        print(
-            f"  Energy 1s/2s (J): {sampling.interval_1s_energy_joules:.2f} / {sampling.interval_15s_energy_joules:.2f}"
-        )
+        print(f"  Energy 1s/2s (J): {sampling.interval_1s_energy_joules:.2f} / {sampling.interval_15s_energy_joules:.2f}")
         print(f"  Diff Percent  : {sampling.difference_percent:.2f}%")
         print(f"  Converged     : {sampling.converged} | Recommended poll: {sampling.recommended_interval_ms} ms")
 
@@ -300,6 +299,7 @@ def measure_idle_baseline(
     if output_dir:
         output_path = Path(output_dir)
         output_path.mkdir(parents=True, exist_ok=True)
+
         baseline_file = output_path / "idle_baseline.json"
         payload = baseline.to_dict()
         payload.update(
@@ -310,9 +310,7 @@ def measure_idle_baseline(
                 "power_samples": powers,
             }
         )
-        with open(baseline_file, "w") as f:
-            json.dump(payload, f, indent=2)
-
+        _write_json(baseline_file, payload)
         print(f"\n  Saved to: {baseline_file}")
     print("=" * 70)
 
@@ -344,6 +342,11 @@ def run_burn_in_test(
     print()
 
     warnings_list: List[str] = []
+
+    # Directory config
+    root_dir = Path(output_dir)
+    prerun_dir = root_dir / "prerun"
+    prerun_dir.mkdir(parents=True, exist_ok=True)
 
     # Create dummy model
     if not torch.cuda.is_available():
@@ -435,7 +438,7 @@ def run_burn_in_test(
 
     # Validate energy logs were written
     energy_logs_valid = True
-    stage_file = burn_in_dir / "energy_logs" / "stage_burn_in.json"
+    stage_file = root_dir / "energy" / "stages" / "burn_in.json"
 
     if not stage_file.exists():
         warnings_list.append(f"Energy log file not found: {stage_file}")
@@ -499,9 +502,8 @@ def run_burn_in_test(
             print(f"    - {warning}")
 
     # Save burn-in summary as JSON for reproducible inspection
-    summary_file = burn_in_dir / "burn_in_result.json"
-    with open(summary_file, "w") as f:
-        json.dump(result.to_dict(), f, indent=2)
+    summary_file = prerun_dir / "burn_in_result.json"
+    _write_json(summary_file, result.to_dict())
     print(f"\n  Burn-in summary saved to: {summary_file}")
 
     print("=" * 70)
