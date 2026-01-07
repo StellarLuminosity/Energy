@@ -76,4 +76,4 @@ hardware:
   assert_cpu_brand: null  # e.g., "Intel(R) Xeon(R)"
 
 output:
-  
+  run_dir: "/home/klambert/projects/aip-craffel/klambert/Energy"

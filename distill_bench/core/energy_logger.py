@@ -2,6 +2,8 @@ import os
 import csv
 import json
 import time
+import torch
+import pynvml
 import threading
 import atexit
 from datetime import datetime
@@ -9,9 +11,8 @@ from dataclasses import dataclass, field, asdict
 from typing import Optional, Dict, List, Any
 from pathlib import Path
 
-import torch
 from codecarbon import EmissionsTracker, OfflineEmissionsTracker
-import pynvml
+from .utils import _safe_filename, _write_json
 
 
 def _infer_nvml_device_indices(device_count: int) -> List[int]:
@@ -124,10 +125,10 @@ class StageMetrics:
         else:
             self.joules_per_token = 0.0
 
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary, excluding raw power samples from summary."""
+    def to_dict(self, include_power_samples: bool = False) -> Dict[str, Any]:
         data = asdict(self)
-        data.pop("gpu_power_samples", None)
+        if not include_power_samples:
+            data.pop("gpu_power_samples", None)
         return data
 
 
@@ -325,6 +326,7 @@ class EnergyTracker:
     def __init__(
         self,
         output_dir: str,
+        run_dir: Optional[str] = None,
         experiment_name: Optional[str] = None,
         config: Optional[Any] = None,
         nvml_poll_interval_ms: Optional[int] = None,
@@ -339,7 +341,6 @@ class EnergyTracker:
         self._stage_counts: Dict[str, int] = {}
 
         def _cfg(explicit: Any, attr_name: str, dotted: str, default: Any) -> Any:
-            """Prefer explicit argument, then config attributes, then nested get(), else fallback."""
             if explicit is not None:
                 return explicit
             if self.config is not None:
@@ -362,9 +363,19 @@ class EnergyTracker:
         self.rapl_root = Path(rapl_root_val)
         self.total_energy_policy = _cfg(None, "energy_total_policy", "energy.total_energy_policy", "measured")
 
-        # Create output directories
-        self.energy_dir = self.output_dir / "energy_logs"
-        self.energy_dir.mkdir(parents=True, exist_ok=True)
+        self.config = config
+
+        # run directories
+        resolved_run_dir = _cfg(run_dir, "run_dir", "output.run_dir", None) or output_dir
+        if not resolved_run_dir:
+            raise ValueError("EnergyTracker requires run_dir (preferred) or output_dir.")
+        self.run_dir = Path(resolved_run_dir)
+
+        self.energy_root = self.run_dir / "energy"
+        self.stages_dir = self.energy_root / "stages"
+        self.codecarbon_dir = self.energy_root / "codecarbon"
+        self.stages_dir.mkdir(parents=True, exist_ok=True)
+        self.codecarbon_dir.mkdir(parents=True, exist_ok=True)
 
         # Stage tracking
         self.stages: Dict[str, StageMetrics] = {}

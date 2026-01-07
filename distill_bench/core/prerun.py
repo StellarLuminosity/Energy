@@ -121,6 +121,88 @@ class PreRunReport:
         }
 
 
+def _bool_icon(ok: bool) -> str:
+    """Return a short status string for booleans."""
+    return "OK" if ok else "ATTN"
+
+
+def _print_prerun_summary(report: PreRunReport, report_file: Path):
+    """Pretty-print the critical metrics needed to decide readiness."""
+    hardware = report.hardware_validation
+    idle = report.idle_baseline
+    burn = report.burn_in
+    sampling = report.sampling_interval
+
+    status_label = "READY" if report.all_checks_passed else "ATTENTION REQUIRED"
+
+    print("\n" + "=" * 70)
+    print("PRE-RUN VALIDATION SUMMARY")
+    print("=" * 70)
+    print(f"Status : {status_label}")
+    print(f"Report : {report_file}")
+
+    # Hardware
+    print("\nHardware")
+    print(f"  GPUs          : {hardware.gpu_count} x {hardware.actual_gpu_type}")
+    if hardware.expected_gpu_type:
+        print(f"  Expected GPU  : {hardware.expected_gpu_type} | Match: {hardware.gpu_match}")
+    print(f"  Min VRAM (GB) : {hardware.actual_vram_gb:.1f} | Sufficient: {hardware.vram_sufficient}")
+    if hardware.warnings:
+        print("  Warnings      :")
+        for w in hardware.warnings:
+            print(f"    - {w}")
+
+    # Idle baseline
+    idle_skipped = idle.duration_seconds == 0
+    print("\nIdle Baseline")
+    if idle_skipped:
+        print("  Status        : skipped")
+    else:
+        print(f"  Duration (s)  : {idle.duration_seconds:.0f}")
+        print(
+            f"  Avg/Min/Max W : {idle.gpu_avg_power_watts:.2f} / {idle.gpu_min_power_watts:.2f} / {idle.gpu_max_power_watts:.2f}"
+        )
+        print(f"  Std Dev (W)   : {idle.gpu_std_power_watts:.2f}")
+        print(f"  Stable        : {idle.stable} ({idle.stability_reason})")
+
+    # Burn-in
+    burn_skipped = burn.num_steps == 0
+    print("\nBurn-in")
+    if burn_skipped:
+        print("  Status        : skipped")
+    else:
+        print(f"  Steps         : {burn.num_steps}, Duration: {burn.duration_seconds:.1f}s")
+        print(f"  GPU Energy (J): {burn.gpu_energy_joules:.2f}")
+        print(f"  Throughput    : {burn.tokens_per_second:.0f} tok/s | GPU util est: {burn.avg_gpu_utilization_pct:.1f}%")
+        print(f"  Energy logs   : {_bool_icon(burn.energy_logs_valid)}")
+        if burn.warnings:
+            print("  Warnings      :")
+            for w in burn.warnings:
+                print(f"    - {w}")
+
+    # Sampling interval
+    sampling_skipped = sampling.interval_1s_energy_joules == 0 and sampling.interval_15s_energy_joules == 0
+    print("\nSampling Interval")
+    if sampling_skipped:
+        print("  Status        : skipped")
+    else:
+        print(
+            f"  Energy 1s/2s (J): {sampling.interval_1s_energy_joules:.2f} / {sampling.interval_15s_energy_joules:.2f}"
+        )
+        print(f"  Diff Percent  : {sampling.difference_percent:.2f}%")
+        print(f"  Converged     : {sampling.converged} | Recommended poll: {sampling.recommended_interval_ms} ms")
+
+    # Critical warnings
+    if report.critical_warnings:
+        print("\nCRITICAL WARNINGS")
+        for w in report.critical_warnings:
+            print(f"  - {w}")
+    else:
+        print("\nCritical Warnings: none")
+
+    print("=" * 70)
+
+
 def measure_idle_baseline(
     duration_minutes: float = 5.0,
     poll_interval_ms: int = 500,
@@ -797,23 +879,7 @@ def run_prerun_validation(
     with open(report_file, "w") as f:
         json.dump(report.to_dict(), f, indent=2)
 
-    # Print summary
-    print("\n" + "=" * 70)
-    print("PRE-RUN VALIDATION SUMMARY")
-    print("=" * 70)
-    print(f"\nAll Checks Passed: {all_checks_passed}")
-
-    if critical_warnings:
-        print("\n⚠ CRITICAL WARNINGS:")
-        for warning in critical_warnings:
-            print(f"  - {warning}")
-        print("\nPlease address these issues before running full experiments.")
-    else:
-        print("\n✓ All validation checks passed successfully!")
-        print("  System is ready for energy benchmarking experiments.")
-
-    print(f"\nFull report saved to: {report_file}")
-    print("=" * 70)
+    _print_prerun_summary(report, report_file)
 
     return report
 
