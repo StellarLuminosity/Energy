@@ -8,8 +8,10 @@ from datasets import Dataset, DatasetDict, load_from_disk, concatenate_datasets
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from tqdm import tqdm
 import math
+from pathlib import Path
 
 from distill_bench.core.config_loader import load_config
+from distill_bench.core.energy_logger import EnergyTracker
 from distill_bench.core.utils import get_dataset, prepare_dataset
 
 
@@ -18,7 +20,7 @@ def get_teacher_logprobs(config):
     if not os.path.exists(os.path.join(config.logprob_cache_path, "teacher_logprobs")):
         print("--> Teacher logprobs not found")
         sys.exit(1)
-    
+
     print("--> Loading Teacher Logits")
     dataset = load_from_disk(os.path.join(config.logprob_cache_path, "teacher_logprobs"))
     return dataset
@@ -33,7 +35,7 @@ def build_teacher_logprobs_dataset(config):
         for split_dir in split_dirs:
             chunk_paths += sorted(
                 [p for p in glob.glob(os.path.join(split_dir, "chunk_*")) if os.path.isdir(p)],
-                key=lambda p: int(os.path.basename(p).split("_")[-1])
+                key=lambda p: int(os.path.basename(p).split("_")[-1]),
             )
         print(f"--> Concatenating {len(chunk_paths)} chunks for {split}")
         split_dataset = concatenate_datasets([load_from_disk(p) for p in chunk_paths])
@@ -43,15 +45,20 @@ def build_teacher_logprobs_dataset(config):
     DatasetDict(data_dict).save_to_disk(final_path)
 
 
-def cache_teacher_logprobs(config):
+def cache_teacher_logprobs(config, energy_tracker):
     """Cache teacher model logprobs for knowledge distillation."""
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    total_tokens = 0
 
     tokenizer = AutoTokenizer.from_pretrained(config.tokenizer_name)
-    teacher_model = AutoModelForCausalLM.from_pretrained(
-        config.teacher_model_name,
-        torch_dtype=torch.bfloat16,
-    ).to(device).eval()
+    teacher_model = (
+        AutoModelForCausalLM.from_pretrained(
+            config.teacher_model_name,
+            torch_dtype=torch.bfloat16,
+        )
+        .to(device)
+        .eval()
+    )
     teacher_model.requires_grad_(False)
     print(f"✓ Teacher model loaded on {device}")
 
@@ -71,25 +78,29 @@ def cache_teacher_logprobs(config):
                 input_ids = batch["input_ids"].to(device)
                 attention_mask = batch["attention_mask"].to(device)
                 labels = batch["labels"]  # remain on CPU
-                
-                logits = teacher_model(input_ids=input_ids, attention_mask=attention_mask).logits # [batch, seq_len, vocab_size]
+
+                logits = teacher_model(input_ids=input_ids, attention_mask=attention_mask).logits  # [batch, seq_len, vocab_size]
                 logprobs = F.log_softmax(logits / config.kl_temperature, dim=-1)
                 values, indices = torch.topk(logprobs, k=100, dim=-1)  # [B, T, K]
-                values = values.to('cpu')                           # BF16
-                indices = indices.to(torch.int32).to('cpu')         # INT32
+                values = values.to("cpu")  # BF16
+                indices = indices.to(torch.int32).to("cpu")  # INT32
 
                 for b in range(values.size(0)):
                     if not (labels[b] != -100).any():
                         continue
-                    
+
                     save_ds["id"].append(batch["id"][b])
                     save_ds["input_ids"].append(batch["input_ids"][b].tolist())
                     save_ds["attention_mask"].append(batch["attention_mask"][b].tolist())
                     save_ds["labels"].append(batch["labels"][b].tolist())
-                    save_ds["logprob_values"].append(values[b].tolist())     # shape [T, K]
-                    save_ds["logprob_indices"].append(indices[b].tolist())   # shape [T, K]
+                    save_ds["logprob_values"].append(values[b].tolist())  # shape [T, K]
+                    save_ds["logprob_indices"].append(indices[b].tolist())  # shape [T, K]
 
                     samples_in_chunk += 1
+                    # Count non-masked tokens for energy accounting
+                    tok = (batch["labels"][b] != -100).sum().item()
+                    total_tokens += tok
+                    energy_tracker.add_tokens(tok)
 
                 # Save in chunks
                 if samples_in_chunk >= 3200:
@@ -113,14 +124,24 @@ def cache_teacher_logprobs(config):
     build_teacher_logprobs_dataset(config)
     print("✓ All teacher logprobs cached.")
 
+    return total_tokens
+
 
 if __name__ == "__main__":
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Cache teacher logprobs for KD")
-    parser.add_argument("--config", type=str, required=True,
-                        help="Path to experiment config YAML")
+    parser.add_argument("--config", type=str, required=True, help="Path to experiment config YAML")
     args = parser.parse_args()
-    
+
     config = load_config(args.config)
-    cache_teacher_logprobs(config)
+
+    run_dir = Path(getattr(config, "run_dir", None) or config.get("output.run_dir", None))
+    run_dir.mkdir(parents=True, exist_ok=True)
+    energy_tracker = EnergyTracker(run_dir=str(run_dir), experiment_name="kd_logit_caching", config=config)
+    energy_tracker.start_stage("logit_caching")
+
+    total_tokens = cache_teacher_logprobs(config, energy_tracker=energy_tracker)
+
+    energy_tracker.end_stage(tokens_processed=total_tokens)
+    energy_tracker.save_summary()

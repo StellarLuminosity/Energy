@@ -10,14 +10,6 @@
 #SBATCH --time=11:58:00
 
 # Unified experiment launcher for KD/SFT/DPO pipelines (single-GPU)
-#
-# Usage:
-#   sbatch run_pipeline.sh configs/experiments/kd_7b_to_1b.yaml
-#   sbatch run_pipeline.sh configs/experiments/sft_7b_to_1b.yaml --run-prerun
-
-# Get config path from command line argument
-CONFIG_PATH=${1:-"configs/experiments/kd_7b_to_1b.yaml"}
-EXTRA_ARGS="${@:2}"  # All arguments after the first
 
 echo "==============================================="
 echo "Distillation Energy Benchmark"
@@ -42,7 +34,11 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 module load gcc arrow/18.1.0
 source /home/klambert/projects/aip-craffel/shared/slm_ensemble/prj/bin/activate
 
-# Run experiment (single-process)
+# Run experiment
+# Usage:
+#   python run_experiment.py --config configs/experiments/kd_7b_to_1b.yaml
+#   python run_experiment.py --config configs/experiments/sft_32b_to_1b.yaml --run_other "PATH"
+# python run_experiment.py --config "$CONFIG_PATH" $EXTRA_ARGS
 python run_experiment.py --config "$CONFIG_PATH" $EXTRA_ARGS
 
 EXIT_CODE=$?

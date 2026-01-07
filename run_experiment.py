@@ -19,15 +19,10 @@ def main():
     )
     parser.add_argument("--config", type=str, required=True, help="Path to experiment config YAML")
     parser.add_argument(
-        "--run-prerun",
-        action="store_true",
-        help="Run quick prerun validation before launching the main pipeline",
-    )
-    parser.add_argument(
-        "--prerun-output",
+        "--run-other",
         type=str,
-        default=None,
-        help="Optional override for prerun validation output directory (defaults to <output_dir>/prerun_validation)",
+        action="store_true",
+        help="Run other script before launching the main pipeline",
     )
     args = parser.parse_args()
 
@@ -40,7 +35,8 @@ def main():
     print()
 
     # Dispatch to appropriate pipeline
-    if args.run_prerun:
+    if args.run_other:
+        str = "run_prerun"
         # Quick validation before the main run
         from distill_bench.core.prerun import quick_validation
 
@@ -53,7 +49,7 @@ def main():
             print("Prerun validation failed; aborting.")
             sys.exit(1)
 
-    if pipeline == "kd":
+    elif pipeline == "kd":
         from distill_bench.pipelines import kd_main
 
         kd_args = argparse.Namespace(config=args.config)
