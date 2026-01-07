@@ -427,20 +427,18 @@ class EnergyTracker:
 
         # Start CodeCarbon
         try:
-            codecarbon_dir = self.energy_dir / "codecarbon" / stage_name
-            codecarbon_dir.mkdir(parents=True, exist_ok=True)
-
+            project_name = f"{self.experiment_name}_{stage_id}"
             if self.offline_mode:
                 self._codecarbon_tracker = OfflineEmissionsTracker(
-                    project_name=f"{self.experiment_name}_{stage_name}",
-                    output_dir=str(codecarbon_dir),
+                    project_name=project_name,
+                    output_dir=str(self.codecarbon_dir),
                     country_iso_code=self.country_iso_code,
                     log_level="error",
                 )
             else:
                 self._codecarbon_tracker = EmissionsTracker(
-                    project_name=f"{self.experiment_name}_{stage_name}",
-                    output_dir=str(codecarbon_dir),
+                    project_name=project_name,
+                    output_dir=str(self.codecarbon_dir),
                     log_level="error",
                 )
             self._codecarbon_tracker.start()
@@ -537,8 +535,11 @@ class EnergyTracker:
             finally:
                 self._codecarbon_tracker = None
 
-            # Read energy from emissions.csv (no private attributes)
-            stage_metrics.codecarbon_energy_kwh = self._read_codecarbon_energy_kwh(codecarbon_dir)
+            # Read energy from emissions.csv
+            stage_metrics.codecarbon_energy_kwh = self._read_codecarbon_energy_kwh(
+                self.codecarbon_dir,
+                project_name=f"{self.experiment_name}_{stage_id}",
+            )
 
         # RAPL CPU energy
         if self.track_cpu and self._rapl_reader is not None:
@@ -647,14 +648,8 @@ class EnergyTracker:
 
         return metrics
 
-    def _read_codecarbon_energy_kwh(self, codecarbon_dir: Path) -> float:
-        """
-        Read CodeCarbon's energy_consumed (kWh) from emissions.csv in codecarbon_dir.
-        Returns 0.0 if the file/field is missing.
-        """
+    def _read_codecarbon_energy_kwh(self, codecarbon_dir: Path, project_name: str) -> float:
         emissions_csv = codecarbon_dir / "emissions.csv"
-
-        # Sometimes the filename can differ; try best-effort discovery
         if not emissions_csv.exists():
             candidates = [p for p in codecarbon_dir.glob("*.csv") if p.name.startswith("emissions")]
             if candidates:
@@ -662,16 +657,16 @@ class EnergyTracker:
             else:
                 return 0.0
 
-        for _ in range(5):  # in case emissions.csv isn't fully written yet
+        for _ in range(5):
             try:
-                last_row = None
+                last_match = None
                 with open(emissions_csv, newline="") as f:
                     reader = csv.DictReader(f)
                     for row in reader:
-                        if row:
-                            last_row = row
-                if last_row:
-                    val = last_row.get("energy_consumed", "")
+                        if row and row.get("project_name") == project_name:
+                            last_match = row
+                if last_match:
+                    val = last_match.get("energy_consumed", "")
                     return float(val) if val not in (None, "") else 0.0
             except Exception:
                 pass
