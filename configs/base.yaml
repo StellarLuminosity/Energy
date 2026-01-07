@@ -10,7 +10,6 @@ experiment:
 # Dataset configuration
 data:
   dataset_name: "allenai/tulu-3-sft-mixture"
-  # Default preprocessed dataset path (non-logit cache); override per pipeline as needed
   dataset_path: "/scratch/klambert/dataset/tulu_preprocessed_clean"
   tokenizer_name: "allenai/OLMo-2-1124-7B-SFT"
   max_sequence_length: 1024
@@ -18,7 +17,7 @@ data:
 
 # Training configuration
 training:
-  token_budget: 10_000_000_000  # 10B tokens (adjust as needed)
+  token_budget: 10_000_000_000  # 10B tokens
   
   # Batch configuration
   batch_size: 4
@@ -54,7 +53,7 @@ energy:
   # Track CPU energy (via RAPL if available)
   track_cpu: true
   # CodeCarbon settings
-  country_iso_code: "USA"
+  country_iso_code: "CAN"
   offline_mode: true
   rapl_root: "/sys/class/powercap/intel-rapl"
   total_energy_policy: "measured" # allowed: "measured" (default), "codecarbon", "gpu_only"
