@@ -35,7 +35,6 @@ training:
   schedule_type: "cosine"  # cosine with warmup
   
   # Precision
-  mixed_precision: true
   dtype: "bfloat16"
   
   # Training control

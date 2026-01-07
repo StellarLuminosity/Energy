@@ -44,7 +44,7 @@ def main(args):
     Simplified single teacher-student distillation pipeline.
 
     Args:
-        args: Argparse namespace with config and mixed_precision flag
+        args: Argparse namespace with config
     """
 
     # Load config
@@ -120,7 +120,6 @@ def main(args):
                 "temperature": config.kl_temperature,
                 "dataset": config.dataset_name,
                 "seed": config.seed,
-                "mixed_precision": args.mixed_precision,
             },
         )
 
@@ -355,6 +354,5 @@ def main(args):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Simple Teacher-Student Distillation")
     parser.add_argument("--config", type=str, required=True, help="Path to experiment config YAML")
-    parser.add_argument("--mixed-precision", action="store_true", default=True, help="Use mixed precision training")
     args = parser.parse_args()
     main(args)
