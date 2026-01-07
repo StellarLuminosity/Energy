@@ -131,6 +131,15 @@ def main(args):
         eval_loss = trainer.eval_epoch(eval_loader, device)
         main_print(f"Epoch {epoch} - Train Loss: {train_loss:.4f}, Eval Loss: {eval_loss:.4f}")
 
+        if use_wandb:
+            wandb.log(
+                {
+                    "eval/loss": eval_loss,
+                    "eval/epoch": epoch,
+                },
+                step=trainer.global_step,
+            )
+
         if config.debug_mode:
             main_print("[DEBUG MODE] Stopping after first epoch")
             break

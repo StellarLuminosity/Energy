@@ -47,17 +47,33 @@ def compute_sft_loss(model, batch, device):
     return loss
 
 
-def train_epoch(model, train_loader, optimizer, lr_scheduler, device, epoch, config, use_wandb):
-    """Train for one epoch."""
+def train_epoch(
+    model,
+    train_loader,
+    eval_loader,
+    optimizer,
+    lr_scheduler,
+    device,
+    epoch,
+    config,
+    use_wandb,
+    eval_steps,
+    global_step,
+    recent_eval_losses,
+    min_eval_loss,
+):
+    """Train for one epoch with periodic evaluation and early stopping."""
     model.train()
     total_loss = 0.0
-    num_steps = 0
     total_tokens = 0
+    batches_processed = 0
+    should_stop = False
 
     progress_bar = tqdm(train_loader, desc=f"Training Epoch {epoch}")
 
     for step, batch in enumerate(progress_bar):
         loss = compute_sft_loss(model, batch, device)
+        batches_processed += 1
 
         # Count exact non-padding tokens
         labels = batch["labels"].to(device)
@@ -74,28 +90,58 @@ def train_epoch(model, train_loader, optimizer, lr_scheduler, device, epoch, con
             lr_scheduler.step()
             optimizer.zero_grad()
 
+            # Log training metrics on optimizer step
             if use_wandb:
                 wandb.log(
                     {
                         "train/loss": loss.item(),
                         "train/learning_rate": lr_scheduler.get_last_lr()[0],
-                        "train/step": num_steps,
+                        "train/step": global_step,
                     },
-                    step=num_steps,
+                    step=global_step,
                 )
 
-            num_steps += 1
+            global_step += 1
+
+            # Periodic evaluation
+            if global_step > 0 and global_step % eval_steps == 0:
+                eval_loss = eval_model(model, eval_loader, device)
+                min_eval_loss = min(min_eval_loss, eval_loss)
+                recent_eval_losses.append(eval_loss)
+                if len(recent_eval_losses) > 3:
+                    recent_eval_losses.pop(0)
+
+                if use_wandb:
+                    wandb.log(
+                        {
+                            "eval/loss": eval_loss,
+                            "eval/min_loss": min_eval_loss,
+                            "eval/epoch": epoch,
+                        },
+                        step=global_step,
+                    )
+
+                # Early stopping: current eval loss worse than previous two
+                if len(recent_eval_losses) >= 3:
+                    current = recent_eval_losses[-1]
+                    prev_two = recent_eval_losses[-3:-1]
+                    if current > prev_two[0] and current > prev_two[1]:
+                        main_print(
+                            f"Early stopping triggered: eval loss {current:.4f} > previous two values {prev_two[0]:.4f}, {prev_two[1]:.4f}"
+                        )
+                        should_stop = True
+                        break
 
         total_loss += loss.item()
         progress_bar.set_postfix({"loss": f"{loss.item():.4f}"})
 
         # Debug mode early exit
-        if config.debug_mode and num_steps >= config.debug_max_steps:
-            main_print(f"[DEBUG MODE] Stopping at {num_steps} steps")
+        if config.debug_mode and global_step >= config.debug_max_steps:
+            main_print(f"[DEBUG MODE] Stopping at {global_step} steps")
             break
 
-    avg_loss = total_loss / len(train_loader) if len(train_loader) > 0 else 0.0
-    return avg_loss, num_steps, total_tokens
+    avg_loss = total_loss / batches_processed if batches_processed > 0 else 0.0
+    return avg_loss, global_step, total_tokens, should_stop, min_eval_loss, recent_eval_losses
 
 
 def eval_model(model, eval_loader, device):
@@ -212,16 +258,35 @@ def main(args):
         energy_tracker.start_stage("student_train")
 
     total_tokens_processed = 0
+    global_step = 0
+    min_eval_loss = float("inf")
+    recent_eval_losses = []
 
     for epoch in range(config.num_epochs):
         main_print(f"\nEpoch {epoch}/{config.num_epochs-1}")
 
         # Train
-        train_loss, num_steps, epoch_tokens = train_epoch(
-            model, train_loader, optimizer, lr_scheduler, device, epoch, config, use_wandb
+        train_loss, global_step, epoch_tokens, stop_early, min_eval_loss, recent_eval_losses = train_epoch(
+            model,
+            train_loader,
+            eval_loader,
+            optimizer,
+            lr_scheduler,
+            device,
+            epoch,
+            config,
+            use_wandb,
+            config.eval_steps,
+            global_step,
+            recent_eval_losses,
+            min_eval_loss,
         )
 
         total_tokens_processed += epoch_tokens
+
+        if stop_early:
+            main_print("Early stopping: training terminated during training loop")
+            break
 
         # Evaluate
         eval_loss = eval_model(model, eval_loader, device)
@@ -233,10 +298,11 @@ def main(args):
             wandb.log(
                 {
                     "eval/loss": eval_loss,
+                    "eval/min_loss": min_eval_loss,
                     "eval/epoch": epoch,
                     "train/total_tokens": total_tokens_processed,
                 },
-                step=num_steps,
+                step=global_step,
             )
 
         if config.debug_mode:
