@@ -25,6 +25,7 @@ from distill_bench.data.preference_dataset import (
     prepare_dpo_dataset,
 )
 
+
 def main(args):
     """Run the DPO pipeline."""
     config = load_config(args.config)
@@ -40,7 +41,7 @@ def main(args):
     energy_tracker = None
     if config.energy_enabled:
         energy_tracker = EnergyTracker(
-            output_dir=config.output_dir,
+            run_dir=config.get("output.run_dir"),
             experiment_name=config.experiment_name,
             config=config,
         )
@@ -72,9 +73,7 @@ def main(args):
     reference_model.requires_grad_(False)
 
     optimizer = torch.optim.AdamW(policy_model.parameters(), lr=config.learning_rate)
-    num_training_steps = (
-        len(train_loader) * config.num_epochs if config.num_training_steps == 0 else config.num_training_steps
-    )
+    num_training_steps = len(train_loader) * config.num_epochs if config.num_training_steps == 0 else config.num_training_steps
     lr_scheduler = get_cosine_schedule_with_warmup(
         optimizer,
         num_warmup_steps=config.num_warmup_steps,
@@ -82,28 +81,32 @@ def main(args):
     )
 
     if use_wandb:
-        run_name = config.wandb_run_name or f"dpo_{config.policy_model_name.split('/')[-1]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
-        
+        run_name = (
+            config.wandb_run_name or f"dpo_{config.policy_model_name.split('/')[-1]}_{datetime.now().strftime('%Y%m%d_%H%M%S')}"
+        )
+
         # Collect hardware metadata
         env_metadata = collect_environment()
-        
+
         wandb.init(
             project=config.wandb_project,
             name=run_name,
             config=config.to_dict(),
         )
-        
+
         # Log hardware metadata
-        wandb.config.update({
-            "hardware/gpu_count": len(env_metadata.get('gpus', [])),
-            "hardware/gpu_type": env_metadata['gpus'][0]['name'] if env_metadata.get('gpus') else 'None',
-            "hardware/gpu_vram_gb": env_metadata['gpus'][0]['memory_total_mb'] / 1024 if env_metadata.get('gpus') else 0,
-            "hardware/cpu": env_metadata['cpu']['brand'],
-            "hardware/cpu_cores": env_metadata['cpu']['physical_cores'],
-            "software/pytorch": env_metadata['software']['pytorch_version'],
-            "software/cuda": env_metadata['software']['cuda_version'],
-            "software/transformers": env_metadata['software']['transformers_version'],
-        })
+        wandb.config.update(
+            {
+                "hardware/gpu_count": len(env_metadata.get("gpus", [])),
+                "hardware/gpu_type": env_metadata["gpus"][0]["name"] if env_metadata.get("gpus") else "None",
+                "hardware/gpu_vram_gb": env_metadata["gpus"][0]["memory_total_mb"] / 1024 if env_metadata.get("gpus") else 0,
+                "hardware/cpu": env_metadata["cpu"]["brand"],
+                "hardware/cpu_cores": env_metadata["cpu"]["physical_cores"],
+                "software/pytorch": env_metadata["software"]["pytorch_version"],
+                "software/cuda": env_metadata["software"]["cuda_version"],
+                "software/transformers": env_metadata["software"]["transformers_version"],
+            }
+        )
 
     trainer = DPOTrainer(
         policy_model=policy_model,

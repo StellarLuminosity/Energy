@@ -539,8 +539,11 @@ def validate_sampling_interval(
 
     device = torch.device("cuda:0")
     matrix_size = 4096
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
+
+    # Directory configs
+    root_dir = Path(output_dir)
+    prerun_dir = root_dir / "prerun"
+    prerun_dir.mkdir(parents=True, exist_ok=True)
 
     # Untracked warm-up workload
     print("  Running short warm-up workload (untracked)...")
@@ -551,11 +554,10 @@ def validate_sampling_interval(
         _ = torch.mm(a, b)
     torch.cuda.synchronize()
 
-    def run_workload(duration_sec: float, poll_interval_ms: int, label: str) -> float:
+    def run_workload(duration_sec: float, poll_interval_ms: int, label: str) -> Tuple[float, List[Dict[str, float]]]:
         """Run matrix multiplications for specified duration and integrate power via timestamps."""
         poller = NVMLPoller(poll_interval_ms=poll_interval_ms)
         poller.start()
-
         try:
             start_t = time.time()
             while time.time() - start_t < duration_sec:
@@ -567,42 +569,26 @@ def validate_sampling_interval(
             readings = poller.stop()
 
         if not readings:
-            return 0.0
+            return 0.0, []
 
-        # Sort by timestamp and trapezoid-integrate P(t)
         readings.sort(key=lambda r: r["timestamp"])
         energy_joules = 0.0
         for prev, cur in zip(readings, readings[1:]):
             dt = max(0.0, cur["timestamp"] - prev["timestamp"])
             energy_joules += 0.5 * (prev["total_power_w"] + cur["total_power_w"]) * dt
 
-        # Save raw readings for this interval
-        readings_file = output_path / f"{label}_readings.json"
-        with open(readings_file, "w") as f:
-            json.dump(
-                {
-                    "label": label,
-                    "poll_interval_ms": poll_interval_ms,
-                    "duration_seconds": duration_sec,
-                    "readings": readings,
-                },
-                f,
-                indent=2,
-            )
-        print(f"    Saved raw readings to: {readings_file}")
-
-        return energy_joules
+        return energy_joules, readings
 
     # Test with 1s interval
     print("  Testing with 1000ms polling interval...")
-    energy_1s = run_workload(test_duration_seconds, poll_interval_ms=1000, label="interval_1000ms")
+    energy_1s, readings_1s = run_workload(test_duration_seconds, poll_interval_ms=1000, label="interval_1000ms")
     print(f"    Energy: {energy_1s:.2f} J")
 
     # Small cooldown
     time.sleep(2)
 
     print("  Testing with 2000ms polling interval...")
-    energy_2s = run_workload(test_duration_seconds, poll_interval_ms=2000, label="interval_2000ms")
+    energy_2s, readings_2s = run_workload(test_duration_seconds, poll_interval_ms=2000, label="interval_2000ms")
     print(f"    Energy: {energy_2s:.2f} J")
 
     # Calculate difference
@@ -633,11 +619,28 @@ def validate_sampling_interval(
         print("\n  ⚠ Warning: Large difference between intervals!")
         print(f"    Consider using {recommended_ms}ms polling interval")
 
-    # Save summary JSON
-    summary_file = output_path / "sampling_interval_result.json"
-    with open(summary_file, "w") as f:
-        json.dump(result.to_dict(), f, indent=2)
-    print(f"\n  Sampling interval summary saved to: {summary_file}")
+    # Save summary
+    sampling_file = prerun_dir / "sampling_interval.json"
+    payload = {
+        "test_duration_seconds": test_duration_seconds,
+        "intervals": [
+            {
+                "label": "interval_1000ms",
+                "poll_interval_ms": 1000,
+                "energy_joules": energy_1s,
+                "readings": readings_1s,
+            },
+            {
+                "label": "interval_2000ms",
+                "poll_interval_ms": 2000,
+                "energy_joules": energy_2s,
+                "readings": readings_2s,
+            },
+        ],
+        "summary": result.to_dict(),
+    }
+    _write_json(sampling_file, payload)
+    print(f"\n  Sampling interval details saved to: {sampling_file}")
 
     print("=" * 70)
 
@@ -782,8 +785,9 @@ def run_prerun_validation(
     print(f"Output Directory: {output_dir}")
     print()
 
-    output_path = Path(output_dir)
-    output_path.mkdir(parents=True, exist_ok=True)
+    root_dir = Path(output_dir)
+    prerun_dir = root_dir / "prerun"
+    prerun_dir.mkdir(parents=True, exist_ok=True)
 
     critical_warnings = []
 
@@ -814,7 +818,7 @@ def run_prerun_validation(
         print("\nStep 2/4: Idle Baseline")
         idle_baseline = measure_idle_baseline(
             duration_minutes=idle_duration_minutes,
-            output_dir=str(output_path / "idle_baseline"),
+            output_dir=str(prerun_dir),
         )
 
     if not idle_baseline.stable:
@@ -836,7 +840,7 @@ def run_prerun_validation(
     else:
         print("\nStep 3/4: Burn-in Test")
         burn_in = run_burn_in_test(
-            output_dir=Path(output_path),
+            output_dir=str(root_dir),
             num_steps=burn_in_steps,
             config=config,
         )
@@ -857,7 +861,7 @@ def run_prerun_validation(
     else:
         print("\nStep 4/4: Sampling Interval Validation")
         sampling = validate_sampling_interval(
-            output_dir=str(output_path / "sampling_validation"),
+            output_dir=str(root_dir),
         )
 
         if not sampling.converged:
@@ -877,9 +881,8 @@ def run_prerun_validation(
     )
 
     # Save report
-    report_file = output_path / "prerun_validation_report.json"
-    with open(report_file, "w") as f:
-        json.dump(report.to_dict(), f, indent=2)
+    report_file = prerun_dir / "prerun_validation_report.json"
+    _write_json(report_file, report.to_dict())
 
     _print_prerun_summary(report, report_file)
 
