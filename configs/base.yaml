@@ -74,3 +74,6 @@ hardware:
   assert_gpu_name: null  # e.g., "NVIDIA L40S"
   assert_gpu_count: null  # e.g., 2
   assert_cpu_brand: null  # e.g., "Intel(R) Xeon(R)"
+
+output:
+  
