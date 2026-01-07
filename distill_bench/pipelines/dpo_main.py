@@ -119,14 +119,14 @@ def main(args):
         use_wandb=use_wandb,
     )
 
-    min_eval_loss = float("inf")
     tokens_seen = 0
     if energy_tracker:
         energy_tracker.start_stage("dpo_training")
 
+    # Training loop
     for epoch in range(config.num_epochs):
         main_print(f"\nEpoch {epoch}/{config.num_epochs - 1}")
-        train_loss, tokens_epoch = trainer.train_epoch(
+        train_loss, tokens_epoch, stop_during_train = trainer.train_epoch(
             train_loader,
             device,
             eval_dataloader=eval_loader,
@@ -136,15 +136,16 @@ def main(args):
         )
         tokens_seen += tokens_epoch
 
+        # after epoch eval loss
         eval_loss = trainer.eval_epoch(eval_loader, device)
-        min_eval_loss = min(min_eval_loss, eval_loss)
+        stop_after_eval = trainer._update_early_stop(eval_loss)
         main_print(f"Epoch {epoch} - Train Loss: {train_loss:.4f}, Eval Loss: {eval_loss:.4f}")
 
         if use_wandb:
             wandb.log(
                 {
                     "eval/loss": eval_loss,
-                    "eval/min_loss": min_eval_loss,
+                    "eval/min_loss": trainer.min_eval_loss,
                     "eval/epoch": epoch,
                 },
                 step=trainer.global_step,
@@ -152,6 +153,9 @@ def main(args):
 
         if config.debug_mode:
             main_print("[DEBUG MODE] Stopping after first epoch")
+            break
+        if stop_during_train or stop_after_eval:
+            main_print("Early stopping: training terminated")
             break
 
     if energy_tracker:

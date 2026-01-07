@@ -37,6 +37,8 @@ class DPOTrainer:
         self.max_grad_norm = max_grad_norm
         self.use_wandb = use_wandb
         self.global_step = 0
+        self.min_eval_loss = float("inf")
+        self.recent_eval_losses = []
 
     @staticmethod
     def _sequence_logprob(
@@ -98,6 +100,23 @@ class DPOTrainer:
         }
         return loss, metrics
 
+    def _update_early_stop(self, eval_loss: float) -> bool:
+        """Track eval losses and decide whether to stop early."""
+        self.min_eval_loss = min(self.min_eval_loss, eval_loss)
+        self.recent_eval_losses.append(eval_loss)
+        if len(self.recent_eval_losses) > 3:
+            self.recent_eval_losses.pop(0)
+
+        if len(self.recent_eval_losses) >= 3:
+            current = self.recent_eval_losses[-1]
+            prev_two = self.recent_eval_losses[-3:-1]
+            if current > prev_two[0] and current > prev_two[1]:
+                main_print(
+                    f"Early stopping triggered: eval loss {current:.4f} > previous two values {prev_two[0]:.4f}, {prev_two[1]:.4f}"
+                )
+                return True
+        return False
+
     def train_epoch(
         self,
         dataloader: DataLoader,
@@ -106,13 +125,13 @@ class DPOTrainer:
         eval_steps: Optional[int] = None,
         epoch: Optional[int] = None,
         energy_tracker: Optional[object] = None,
-    ) -> Tuple[float, int]:
-        """Train for one epoch with periodic evaluation."""
+    ) -> Tuple[float, int, bool]:
+        """Train for one epoch with periodic evaluation and early stopping."""
         self.policy_model.train()
         total_loss = 0.0
         steps = 0
         tokens_processed = 0
-        min_eval_loss = float("inf")
+        should_stop = False
 
         for step, batch in enumerate(dataloader):
             loss, metrics = self._dpo_loss(batch, device)
@@ -156,7 +175,7 @@ class DPOTrainer:
                 )
                 if do_eval:
                     eval_loss = self.eval_epoch(eval_dataloader, device)
-                    min_eval_loss = min(min_eval_loss, eval_loss)
+                    should_stop = self._update_early_stop(eval_loss)
 
                     if self.use_wandb:
                         import wandb
@@ -164,7 +183,7 @@ class DPOTrainer:
                         wandb.log(
                             {
                                 "eval/loss": eval_loss,
-                                "eval/min_loss": min_eval_loss,
+                                "eval/min_loss": self.min_eval_loss,
                                 "eval/epoch": epoch if epoch is not None else -1,
                             },
                             step=self.global_step,
@@ -172,11 +191,14 @@ class DPOTrainer:
                     # Resume training mode after evaluation
                     self.policy_model.train()
 
+                    if should_stop:
+                        break
+
             total_loss += metrics["loss"]
             steps += 1
 
         avg_loss = total_loss / max(steps, 1)
-        return avg_loss, tokens_processed
+        return avg_loss, tokens_processed, should_stop
 
     def eval_epoch(self, dataloader: DataLoader, device: torch.device) -> float:
         """Evaluate the policy model against the reference."""
