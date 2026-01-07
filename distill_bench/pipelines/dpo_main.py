@@ -119,22 +119,32 @@ def main(args):
         use_wandb=use_wandb,
     )
 
+    min_eval_loss = float("inf")
     tokens_seen = 0
     if energy_tracker:
         energy_tracker.start_stage("dpo_training")
 
     for epoch in range(config.num_epochs):
         main_print(f"\nEpoch {epoch}/{config.num_epochs - 1}")
-        train_loss, tokens_epoch = trainer.train_epoch(train_loader, device, energy_tracker)
+        train_loss, tokens_epoch = trainer.train_epoch(
+            train_loader,
+            device,
+            eval_dataloader=eval_loader,
+            eval_steps=config.eval_steps,
+            epoch=epoch,
+            energy_tracker=energy_tracker,
+        )
         tokens_seen += tokens_epoch
 
         eval_loss = trainer.eval_epoch(eval_loader, device)
+        min_eval_loss = min(min_eval_loss, eval_loss)
         main_print(f"Epoch {epoch} - Train Loss: {train_loss:.4f}, Eval Loss: {eval_loss:.4f}")
 
         if use_wandb:
             wandb.log(
                 {
                     "eval/loss": eval_loss,
+                    "eval/min_loss": min_eval_loss,
                     "eval/epoch": epoch,
                 },
                 step=trainer.global_step,

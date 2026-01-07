@@ -76,7 +76,9 @@ class DPOTrainer:
 
         with torch.no_grad():
             ref_chosen_logp = self._sequence_logprob(self.reference_model, chosen_ids, chosen_attention, chosen_prompt_len)
-            ref_rejected_logp = self._sequence_logprob(self.reference_model, rejected_ids, rejected_attention, rejected_prompt_len)
+            ref_rejected_logp = self._sequence_logprob(
+                self.reference_model, rejected_ids, rejected_attention, rejected_prompt_len
+            )
 
         policy_log_ratio = policy_chosen_logp - policy_rejected_logp
         ref_log_ratio = ref_chosen_logp - ref_rejected_logp
@@ -100,22 +102,24 @@ class DPOTrainer:
         self,
         dataloader: DataLoader,
         device: torch.device,
+        eval_dataloader: Optional[DataLoader] = None,
+        eval_steps: Optional[int] = None,
+        epoch: Optional[int] = None,
         energy_tracker: Optional[object] = None,
     ) -> Tuple[float, int]:
-        """Train for one epoch. Returns average loss and tokens processed."""
+        """Train for one epoch with periodic evaluation."""
         self.policy_model.train()
         total_loss = 0.0
         steps = 0
         tokens_processed = 0
+        min_eval_loss = float("inf")
 
         for step, batch in enumerate(dataloader):
             loss, metrics = self._dpo_loss(batch, device)
             loss = loss / self.gas
             loss.backward()
 
-            tokens_this_step = (
-                batch["chosen_attention_mask"].sum() + batch["rejected_attention_mask"].sum()
-            ).item()
+            tokens_this_step = (batch["chosen_attention_mask"].sum() + batch["rejected_attention_mask"].sum()).item()
             tokens_processed += tokens_this_step
             if energy_tracker:
                 energy_tracker.add_tokens(tokens_this_step)
@@ -143,6 +147,31 @@ class DPOTrainer:
                         step=self.global_step,
                     )
 
+                # Periodic evaluation
+                do_eval = (
+                    eval_dataloader is not None
+                    and eval_steps is not None
+                    and eval_steps > 0
+                    and self.global_step % eval_steps == 0
+                )
+                if do_eval:
+                    eval_loss = self.eval_epoch(eval_dataloader, device)
+                    min_eval_loss = min(min_eval_loss, eval_loss)
+
+                    if self.use_wandb:
+                        import wandb
+
+                        wandb.log(
+                            {
+                                "eval/loss": eval_loss,
+                                "eval/min_loss": min_eval_loss,
+                                "eval/epoch": epoch if epoch is not None else -1,
+                            },
+                            step=self.global_step,
+                        )
+                    # Resume training mode after evaluation
+                    self.policy_model.train()
+
             total_loss += metrics["loss"]
             steps += 1
 
@@ -164,4 +193,3 @@ class DPOTrainer:
         avg_loss = total_loss / max(steps, 1)
         main_print(f"Eval DPO loss: {avg_loss:.4f}")
         return avg_loss
-
