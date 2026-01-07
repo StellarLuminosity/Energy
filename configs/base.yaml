@@ -10,7 +10,7 @@ experiment:
 # Dataset configuration
 data:
   dataset_name: "allenai/tulu-3-sft-mixture"
-  dataset_path: "/scratch/klambert/dataset/tulu_preprocessed_clean"
+  dataset_path: "/scratch/klambert/dataset/tulu-3-sft-mixture-olmo-preprocessed"
   tokenizer_name: "allenai/OLMo-2-1124-7B-SFT"
   max_sequence_length: 1024
   pad_token_id: 100277  # OLMo-2 pad token

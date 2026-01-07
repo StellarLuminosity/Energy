@@ -1,13 +1,14 @@
 #!/bin/bash
-#SBATCH --job-name=distill_exp
+#SBATCH --job-name=distill_logit_cache
+#SBATCH --exclusive
 #SBATCH --output=/scratch/klambert/run_logs/%x_%j.out                
 #SBATCH --error=/scratch/klambert/run_logs/%x_%j.err 
-#SBATCH --partition=gpubase_l40s_b3                                                
-#SBATCH --gres=gpu:l40s:1
+#SBATCH --partition=gpubase_h100_b2                                             
+#SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=4                                                                     
-#SBATCH --mem=60GB
+#SBATCH --mem=120GB
 #SBATCH --account=aip-craffel                                             
-#SBATCH --time=11:58:00
+#SBATCH --time=7:00:00
 
 # Unified experiment launcher for KD/SFT/DPO pipelines (single-GPU)
 
