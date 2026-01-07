@@ -5,8 +5,10 @@ import shutil
 import datasets
 from transformers import AutoTokenizer
 import torch.nn.functional as F
+from pathlib import Path
 
 from distill_bench.core.config_loader import load_config
+from distill_bench.core.energy_logger import EnergyTracker
 
 # ----------------------------------
 # Helper Functions
@@ -73,8 +75,12 @@ def contains_complete_response_template(sample, tokenizer):
     return False
 
 
-def main(config):
+def main(config, energy_tracker: EnergyTracker = None, stage_name: str = "tulu_preprocess_dataset"):
     """Main preprocessing function."""
+    started_here = False
+    if energy_tracker and energy_tracker.current_stage is None:
+        energy_tracker.start_stage(stage_name)
+        started_here = True
     # ----------------------------------
     # Load Dataset
     # ----------------------------------
@@ -201,6 +207,10 @@ def main(config):
         print(f"✓ All token IDs are within vocabulary range!")
 
     print("\nDataset processing complete!")
+    if energy_tracker and started_here:
+        total_examples = len(final_dataset["train"]) + len(final_dataset["test"])
+        energy_tracker.add_tokens(total_examples)
+        energy_tracker.end_stage(tokens_processed=total_examples)
 
 
 if __name__ == "__main__":
@@ -212,5 +222,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     config = load_config(args.config)
-    main(config)
+    run_dir = Path(getattr(config, "run_dir", None) or config.get("output.run_dir", None) or getattr(config, "output_dir", "logs"))
+    run_dir.mkdir(parents=True, exist_ok=True)
+    tracker = EnergyTracker(run_dir=str(run_dir), experiment_name="tulu_preprocess_dataset", config=config)
 
+    main(config, energy_tracker=tracker, stage_name="tulu_preprocess_dataset")
+    tracker.save_summary()

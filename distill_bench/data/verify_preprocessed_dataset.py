@@ -21,11 +21,10 @@ from transformers import AutoTokenizer
 import random
 import numpy as np
 import statistics
+from pathlib import Path
 
 from distill_bench.core.config_loader import load_config
-
-# Load config
-config = load_config('configs/experiments/sft_7b_to_1b.yaml')
+from distill_bench.core.energy_logger import EnergyTracker
 
 
 def inspect_sample(sample, sample_idx, tokenizer):
@@ -169,8 +168,12 @@ def inspect_sample(sample, sample_idx, tokenizer):
     return checks_passed == checks_total
 
 
-def main():
+def main(config, energy_tracker: EnergyTracker = None, stage_name: str = "verify_preprocessed_dataset"):
     """Main verification function."""
+    started_here = False
+    if energy_tracker and energy_tracker.current_stage is None:
+        energy_tracker.start_stage(stage_name)
+        started_here = True
     print("=" * 80)
     print("PREPROCESSED DATASET VERIFICATION")
     print("=" * 80)
@@ -407,8 +410,23 @@ def main():
         print("Most warnings are not critical, but all-masked samples should be investigated.")
 
     print("\n" + "=" * 80)
+    if energy_tracker and started_here:
+        total_examples = len(dataset["train"]) + len(dataset["test"])
+        energy_tracker.add_tokens(total_examples)
+        energy_tracker.end_stage(tokens_processed=total_examples)
 
 
 if __name__ == "__main__":
-    main()
+    import argparse
 
+    parser = argparse.ArgumentParser(description="Verify preprocessed dataset")
+    parser.add_argument("--config", type=str, default="configs/experiments/sft_7b_to_1b.yaml", help="Path to experiment config YAML")
+    args = parser.parse_args()
+
+    cfg = load_config(args.config)
+    run_dir = Path(getattr(cfg, "run_dir", None) or cfg.get("output.run_dir", None) or getattr(cfg, "output_dir", "logs"))
+    run_dir.mkdir(parents=True, exist_ok=True)
+    tracker = EnergyTracker(run_dir=str(run_dir), experiment_name="verify_preprocessed_dataset", config=cfg)
+
+    main(cfg, energy_tracker=tracker, stage_name="verify_preprocessed_dataset")
+    tracker.save_summary()
