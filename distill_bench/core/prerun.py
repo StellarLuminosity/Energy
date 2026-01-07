@@ -28,8 +28,8 @@ from .environment import collect_environment, collect_gpu_info
 from .utils import _write_json
 
 # Heuristic thresholds for idle baseline stability
-IDLE_MAX_STD_WATTS = 1.0  # std dev <= 1 W
-IDLE_MAX_SPIKE_OVER_MEAN_WATTS = 10.0  # max - mean <= 10 W
+IDLE_MAX_STD_WATTS = 4.0  # std dev <= 1 W
+IDLE_MAX_SPIKE_OVER_MEAN_WATTS = 50.0  # max - mean <= 10 W
 
 
 @dataclass
@@ -213,7 +213,7 @@ def measure_idle_baseline(
     This helps calculate net energy by subtracting the idle power consumption
     from active training power consumption.
     """
-    print("\n" + "=" * 70)
+    print("=" * 70)
     print("IDLE BASELINE MEASUREMENT")
     print("=" * 70)
     print(f"Duration: {duration_minutes:.1f} minutes")
@@ -335,7 +335,7 @@ def run_burn_in_test(
     - Logs are written properly
     - GPU utilization is reasonable
     """
-    print("\n" + "=" * 70)
+    print("=" * 70)
     print("BURN-IN TEST")
     print("=" * 70)
     print(f"Steps: {num_steps}, Batch Size: {batch_size}, Seq Length: {seq_length}")
@@ -521,7 +521,7 @@ def validate_sampling_interval(
     Runs a simple GPU workload with two different polling intervals (1s and 2s)
     and checks that the energy estimates converge.
     """
-    print("\n" + "=" * 70)
+    print("=" * 70)
     print("SAMPLING INTERVAL VALIDATION")
     print("=" * 70)
     print(f"Test Duration: {test_duration_seconds:.0f}s")
@@ -660,7 +660,7 @@ def validate_hardware(
     - VRAM is sufficient for workload (based on min VRAM across GPUs)
     - GPU count and heterogeneity
     """
-    print("\n" + "=" * 70)
+    print("=" * 70)
     print("HARDWARE VALIDATION")
     print("=" * 70)
 

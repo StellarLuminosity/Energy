@@ -310,7 +310,7 @@ class EnergyTracker:
     energy measurement with stage-wise accounting.
 
     Usage:
-        tracker = EnergyTracker(output_dir, config=config)
+        tracker = EnergyTracker(run_dir, config=config)
 
         tracker.start_stage("teacher_forward")
         # ... do work ...
@@ -325,7 +325,6 @@ class EnergyTracker:
 
     def __init__(
         self,
-        output_dir: str,
         run_dir: Optional[str] = None,
         experiment_name: Optional[str] = None,
         config: Optional[Any] = None,
@@ -335,9 +334,7 @@ class EnergyTracker:
         offline_mode: Optional[bool] = None,
         rapl_root: Optional[str] = None,
     ):
-        self.output_dir = Path(output_dir)
         self.config = config
-
         self._stage_counts: Dict[str, int] = {}
 
         def _cfg(explicit: Any, attr_name: str, dotted: str, default: Any) -> Any:
@@ -366,12 +363,12 @@ class EnergyTracker:
         self.config = config
 
         # run directories
-        resolved_run_dir = _cfg(run_dir, "run_dir", "output.run_dir", None) or output_dir
+        resolved_run_dir = _cfg(run_dir, "run_dir", "output.run_dir", None)
         if not resolved_run_dir:
             raise ValueError("EnergyTracker requires run_dir (preferred) or output_dir.")
         self.run_dir = Path(resolved_run_dir)
 
-        self.energy_root = self.run_dir / "energy"
+        self.energy_root = self.run_dir
         self.stages_dir = self.energy_root / "stages"
         self.codecarbon_dir = self.energy_root / "codecarbon"
         self.stages_dir.mkdir(parents=True, exist_ok=True)
@@ -525,7 +522,7 @@ class EnergyTracker:
 
         # Stop CodeCarbon
         if self._codecarbon_tracker is not None:
-            codecarbon_dir = self.energy_dir / "codecarbon" / stage_id
+            codecarbon_dir = self.energy_root / "codecarbon" / stage_id
             try:
                 emissions = self._codecarbon_tracker.stop()
                 if emissions is not None:
