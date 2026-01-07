@@ -8,17 +8,17 @@ Short commands and output pointers for the KD, SFT, and DPO pipelines.
   - Prerun baseline writes to `<output_dir>/prerun_validation` when enabled.  
   - SFT synthetic dataset: `/scratch/klambert/dataset/synthetic_7b_to_1b` (auto-generated if missing and `use_existing: false`).  
   - DPO preference dataset cached at `<output_dir>/preference_dataset` if not already present.
-- Energy logs write to `output.run_dir` from `configs/base.yaml` (default: `logs/` in repo). Make sure it is writable; override per run if you want per-run folders.
+- Energy logs write to `output.run_dir` from `configs/base.yaml` (default: `logs/` in repo). Make sure it is writable.
 - SLURM environment: `run_pipeline.sh` loads `gcc`, `arrow/18.1.0`, and activates `/home/klambert/projects/aip-craffel/shared/slm_ensemble/prj/bin/activate`. Use the same env if running interactively.
 
 ## Launch Commands
 - SLURM (recommended):  
-  - KD: `sbatch run_pipeline.sh configs/experiments/kd_7b_to_1b.yaml --run-prerun`  
-  - SFT: `sbatch run_pipeline.sh configs/experiments/sft_7b_to_1b.yaml --run-prerun`  
-  - DPO: `sbatch run_pipeline.sh configs/experiments/dpo_7b_to_1b.yaml --run-prerun`
+  - Pipelines: `sbatch run_pipeline.sh configs/experiments/kd_7b_to_1b.yaml` (or sft/dpo configs)  
+  - Data scripts via dispatcher: `sbatch run_pipeline.sh configs/experiments/kd_7b_to_1b.yaml --data-script logit_caching`
 - Interactive (single GPU):  
-  `python run_experiment.py --config <config.yaml> [--run-prerun] [--prerun-output <dir>]`
-- `--run-prerun` runs the quick hardware/idle/burn-in sanity check before the main job; it aborts on failure.
+  - Pipelines: `python run_experiment.py --config <config.yaml>`  
+  - Data scripts: `python run_experiment.py --config <config.yaml> --data-script <name_or_path>`
+- `--data-script` accepts a basename (e.g., `logit_caching`, `preference_dataset`, `synthetic_generation`) or a path to a data script; it bypasses the training pipeline and runs that script’s `__main__`.
 
 ## Pipeline-Specific Notes
 - **KD (`configs/experiments/kd_7b_to_1b.yaml`)**  
@@ -46,6 +46,11 @@ Short commands and output pointers for the KD, SFT, and DPO pipelines.
 - Compare pipelines by stage energy:  
   - KD: single `student_train` stage.  
   - SFT: `teacher_generation` vs `student_train` shows teacher vs student cost split.  
-  - DPO: `teacher_generation` (labeling) vs `dpo_training`.
+  - DPO: `teacher_generation` (label generation) vs `dpo_training`.
 - Quality/learning signals live in W&B and console logs: train/eval loss curves, checkpoint losses, and any eval hooks you add.  
 - Throughput vs energy: higher `tokens_per_second` with lower `joules_per_token` indicates more efficient training; track both alongside validation loss to pick Pareto-efficient runs.
+
+## Dataset-Specific Notes
+- `logit_caching` (KD prep): reads cached/preprocessed Tulu data from `distillation.logprob_cache_path` and writes consolidated `teacher_logprobs` under that path; energy stage name `logit_caching`.
+- `synthetic_generation` (SFT prep): generates or reuses synthetic data at `synthetic_data.synthetic_dataset_path`; when run via dispatcher, energy stage name `synthetic_generation` (pipeline uses `teacher_generation`).
+- `preference_dataset` (DPO prep): builds or loads preference pairs at `dpo_preference_dataset_path` or `<output_dir>/preference_dataset`; energy stage name `preference_dataset` for standalone runs (pipeline uses `teacher_generation`).

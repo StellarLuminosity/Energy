@@ -43,6 +43,25 @@ def _write_json(path: Path, payload: Any) -> None:
     tmp.replace(path)
 
 
+def _resolve_data_script(script_arg: str) -> Path:
+    """Resolve a data script path from a name or path."""
+    candidate = Path(script_arg)
+    if candidate.is_file():
+        return candidate
+    if candidate.suffix == "":
+        candidate = candidate.with_suffix(".py")
+    if candidate.is_file():
+        return candidate
+    data_dir = Path(__file__).parent / "distill_bench" / "data"
+    alt = data_dir / candidate.name
+    if alt.is_file():
+        return alt
+    alt2 = alt.with_suffix(".py")
+    if alt2.is_file():
+        return alt2
+    raise FileNotFoundError(f"Data script not found: {script_arg}")
+
+
 # ==================================================
 # Distributed Training Utilities
 # ==================================================

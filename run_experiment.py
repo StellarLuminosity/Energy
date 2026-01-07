@@ -6,50 +6,50 @@ Dispatches to KD/SFT/DPO based on config.pipeline field.
 """
 
 import argparse
+import subprocess
 import sys
 from pathlib import Path
 
 from distill_bench.core.config_loader import load_config
+from distill_bench.core.utils import _resolve_data_script
 
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Run distillation experiment",
+        description="Run distillation experiment or data script",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--config", type=str, required=True, help="Path to experiment config YAML")
     parser.add_argument(
-        "--run-other",
+        "--data-script",
         type=str,
-        action="store_true",
-        help="Run other script before launching the main pipeline",
+        default=None,
+        help="Optional data script to run instead of a training pipeline (e.g., logit_caching)",
     )
-    args = parser.parse_args()
+    args, extra = parser.parse_known_args()
 
     # Load config to determine pipeline type
     config = load_config(args.config)
+
+    # If a data script is specified, run it and exit
+    if args.data_script:
+        script_path = _resolve_data_script(args.data_script)
+        cmd = [sys.executable, str(script_path), "--config", args.config, *extra]
+        print(f"Running data script: {script_path}")
+        print(f"With command: {' '.join(cmd)}")
+        result = subprocess.run(cmd)
+        sys.exit(result.returncode)
+
     pipeline = config.pipeline
 
     print(f"Running pipeline: {pipeline}")
     print(f"Config: {args.config}")
+    if extra:
+        print(f"Extra args (ignored by pipeline dispatcher): {extra}")
     print()
 
     # Dispatch to appropriate pipeline
-    if args.run_other:
-        str = "run_prerun"
-        # Quick validation before the main run
-        from distill_bench.core.prerun import quick_validation
-
-        prerun_dir = Path(args.prerun_output) if args.prerun_output else Path(config.output_dir) / "prerun_validation"
-        quick_ok = quick_validation(
-            output_dir=str(prerun_dir),
-            config=config,
-        )
-        if not quick_ok:
-            print("Prerun validation failed; aborting.")
-            sys.exit(1)
-
-    elif pipeline == "kd":
+    if pipeline == "kd":
         from distill_bench.pipelines import kd_main
 
         kd_args = argparse.Namespace(config=args.config)
