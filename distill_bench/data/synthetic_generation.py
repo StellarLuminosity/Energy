@@ -14,12 +14,13 @@ from pathlib import Path
 from typing import Optional
 
 from distill_bench.core.energy_logger import EnergyTracker
-from distill_bench.core.config_loader import Config
+from distill_bench.core.config_loader import Config, load_config
 
 
 def generate_synthetic_dataset(
     config: Config,
     energy_tracker: Optional[EnergyTracker] = None,
+    stage_name: str = "teacher_generation",
 ) -> datasets.DatasetDict:
     """
     Generate synthetic dataset using teacher model.
@@ -50,7 +51,7 @@ def generate_synthetic_dataset(
     
     # Start energy tracking for teacher generation (single stage)
     if energy_tracker and energy_tracker.current_stage is None:
-        energy_tracker.start_stage("teacher_generation")
+        energy_tracker.start_stage(stage_name)
     
     # Load tokenizer and teacher model
     print(f"Loading teacher model: {config.teacher_model_name}")
@@ -237,6 +238,7 @@ def generate_synthetic_dataset(
 def load_or_generate_synthetic_dataset(
     config: Config,
     energy_tracker: Optional[EnergyTracker] = None,
+    stage_name: str = "teacher_generation",
 ) -> datasets.DatasetDict:
     """
     Load existing synthetic dataset or generate if it doesn't exist.
@@ -257,4 +259,20 @@ def load_or_generate_synthetic_dataset(
     
     # Generate new dataset
     print("Synthetic dataset not found, generating...")
-    return generate_synthetic_dataset(config, energy_tracker)
+    return generate_synthetic_dataset(config, energy_tracker, stage_name=stage_name)
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Generate synthetic dataset with energy tracking")
+    parser.add_argument("--config", type=str, required=True, help="Path to experiment config YAML")
+    args = parser.parse_args()
+
+    cfg = load_config(args.config)
+    run_dir = Path(getattr(cfg, "run_dir", None) or cfg.get("output.run_dir", None) or getattr(cfg, "output_dir", "logs"))
+    run_dir.mkdir(parents=True, exist_ok=True)
+    tracker = EnergyTracker(run_dir=str(run_dir), experiment_name="synthetic_generation", config=cfg)
+
+    load_or_generate_synthetic_dataset(cfg, energy_tracker=tracker, stage_name="synthetic_generation")
+    tracker.save_summary()
