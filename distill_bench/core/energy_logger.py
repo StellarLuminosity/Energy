@@ -554,22 +554,10 @@ class EnergyTracker:
         stage_metrics.compute_derived_metrics(total_energy_policy=self.total_energy_policy)
 
         # Save stage metrics to JSON
-        stage_file = self.energy_dir / f"stage_{stage_id}.json"
-        with open(stage_file, "w") as f:
-            json.dump(stage_metrics.to_dict(), f, indent=2)
-
-        # Also save raw power samples if available
-        if stage_metrics.gpu_power_samples:
-            samples_file = self.energy_dir / f"stage_{stage_id}_power_samples.json"
-            with open(samples_file, "w") as f:
-                json.dump(
-                    {
-                        "stage": stage_id,
-                        "poll_interval_ms": self.nvml_poll_interval_ms,
-                        "samples": stage_metrics.gpu_power_samples,
-                    },
-                    f,
-                )
+        stage_path = self.stages_dir / f"{_safe_filename(stage_id)}.json"
+        payload = stage_metrics.to_dict(include_power_samples=True)
+        payload["nvml_poll_interval_ms"] = self.nvml_poll_interval_ms
+        _write_json(stage_path, payload)
 
         print(f"[EnergyTracker] Ended stage: {stage_id}")
         print(f"  Duration: {stage_metrics.duration_seconds:.2f}s")
@@ -618,10 +606,8 @@ class EnergyTracker:
         if additional_metadata:
             summary["metadata"] = additional_metadata
 
-        summary_file = self.energy_dir / "experiment_summary.json"
-        with open(summary_file, "w") as f:
-            json.dump(summary, f, indent=2)
-
+        summary_file = self.energy_root / "experiment_summary.json"
+        _write_json(summary_file, summary)
         print(f"[EnergyTracker] Summary saved to: {summary_file}")
         return summary_file
 

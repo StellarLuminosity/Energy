@@ -3,6 +3,7 @@ Simplified utilities for distillation training.
 """
 
 import re
+import json
 import torch
 from torch.utils.data import DataLoader
 import datasets
