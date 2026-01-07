@@ -19,6 +19,7 @@ from tqdm.auto import tqdm
 from distill_bench.core.config_loader import Config
 from distill_bench.core.energy_logger import EnergyTracker
 from distill_bench.core.utils import main_print
+from distill_bench.core.config_loader import load_config
 
 
 def _build_prompt_text(example: Dict, tokenizer: AutoTokenizer) -> Optional[str]:
@@ -88,6 +89,7 @@ def generate_preference_dataset(
     config: Config,
     tokenizer: AutoTokenizer,
     energy_tracker: Optional[EnergyTracker] = None,
+    stage_name: str = "teacher_generation",
 ) -> datasets.DatasetDict:
     """
     Generate preference pairs using the teacher model (generation + labeling).
@@ -98,6 +100,11 @@ def generate_preference_dataset(
     top_p = config.get("dpo.judge_labeling.top_p", 0.9)
     temperature = config.dpo_judge_temperature
     prompt_limit = config.get("dpo.max_prompts", 2000)
+    started_here = False
+
+    if energy_tracker and energy_tracker.current_stage is None:
+        energy_tracker.start_stage(stage_name)
+        started_here = True
 
     main_print(f"Loading teacher model for preference generation: {config.teacher_model_name}")
     teacher_model = AutoModelForCausalLM.from_pretrained(
@@ -200,6 +207,9 @@ def generate_preference_dataset(
     dataset.save_to_disk(save_path)
     main_print(f"Saved generated preference dataset to: {save_path}")
 
+    if energy_tracker and started_here:
+        energy_tracker.end_stage(tokens_processed=total_tokens)
+
     return dataset
 
 
@@ -207,6 +217,7 @@ def load_or_build_preference_dataset(
     config: Config,
     tokenizer: AutoTokenizer,
     energy_tracker: Optional[EnergyTracker] = None,
+    stage_name: str = "teacher_generation",
 ) -> datasets.DatasetDict:
     """
     Always build (or reuse cached) preference dataset from teacher generations.
@@ -217,8 +228,8 @@ def load_or_build_preference_dataset(
         return datasets.load_from_disk(ds_path)
 
     if energy_tracker and energy_tracker.current_stage is None:
-        energy_tracker.start_stage("teacher_generation")
-    dataset = generate_preference_dataset(config, tokenizer, energy_tracker)
+        energy_tracker.start_stage(stage_name)
+    dataset = generate_preference_dataset(config, tokenizer, energy_tracker, stage_name=stage_name)
     if energy_tracker and energy_tracker.current_stage:
         energy_tracker.end_stage()
     return dataset
@@ -270,12 +281,8 @@ def prepare_dpo_dataset(
     max_length = config.get("data.max_sequence_length", 1024)
 
     def _process(example: Dict) -> Dict:
-        chosen_ids, chosen_prompt_len = _tokenize_pair(
-            example["prompt"], example["chosen"], tokenizer, max_length
-        )
-        rejected_ids, rejected_prompt_len = _tokenize_pair(
-            example["prompt"], example["rejected"], tokenizer, max_length
-        )
+        chosen_ids, chosen_prompt_len = _tokenize_pair(example["prompt"], example["chosen"], tokenizer, max_length)
+        rejected_ids, rejected_prompt_len = _tokenize_pair(example["prompt"], example["rejected"], tokenizer, max_length)
 
         return {
             "chosen_input_ids": chosen_ids,
@@ -344,3 +351,24 @@ def create_dpo_dataloaders(
         collate_fn=collate,
     )
     return train_loader, eval_loader
+
+
+if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Generate preference dataset with energy tracking")
+    parser.add_argument("--config", type=str, required=True, help="Path to experiment config YAML")
+    args = parser.parse_args()
+
+    cfg = load_config(args.config)
+    tokenizer = AutoTokenizer.from_pretrained(cfg.tokenizer_name)
+
+    # Initialize energy tracker for standalone use (stage name = filename)
+    run_dir = Path(getattr(cfg, "run_dir", None) or cfg.get("output.run_dir", None) or getattr(cfg, "output_dir", "logs"))
+    run_dir.mkdir(parents=True, exist_ok=True)
+    tracker = EnergyTracker(run_dir=str(run_dir), experiment_name="preference_dataset", config=cfg)
+
+    dataset = generate_preference_dataset(cfg, tokenizer, tracker, stage_name="preference_dataset")
+    tracker.save_summary()
+
+# TODO: this needs edit, especially the starts_here parameter
