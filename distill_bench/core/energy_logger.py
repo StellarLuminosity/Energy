@@ -12,6 +12,7 @@ from typing import Optional, Dict, List, Any
 from pathlib import Path
 
 from codecarbon import EmissionsTracker, OfflineEmissionsTracker
+from .environment import save_environment
 from .utils import _safe_filename, _write_json
 
 
@@ -403,6 +404,28 @@ class EnergyTracker:
         self.current_stage = stage_id
         stage_metrics = StageMetrics(stage_id=stage_id, stage_name=stage_name)
         self.stages[stage_id] = stage_metrics
+
+        # Snapshot environment and config for this stage
+        safe_stage_name = _safe_filename(stage_name)
+        safe_stage_id = _safe_filename(stage_id)
+        try:
+            env_filename = f"environment_{safe_stage_name}__{safe_stage_id}.json"
+            save_environment(output_dir=str(self.stages_dir), filename=env_filename)
+        except Exception as e:
+            print(f"[EnergyTracker] Warning: failed to save environment for stage '{stage_id}': {e}")
+
+        if self.config is not None:
+            try:
+                cfg_dict = self.config.to_dict() if hasattr(self.config, "to_dict") else dict(self.config)
+                cfg_payload = {
+                    "stage_name": stage_name,
+                    "stage_id": stage_id,
+                    "config": cfg_dict,
+                }
+                cfg_filename = f"config_{safe_stage_name}__{safe_stage_id}.json"
+                _write_json(self.stages_dir / cfg_filename, cfg_payload)
+            except Exception as e:
+                print(f"[EnergyTracker] Warning: failed to save config for stage '{stage_id}': {e}")
 
         # RAPL CPU energy
         if self.track_cpu and self._rapl_reader is not None:

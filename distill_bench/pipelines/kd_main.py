@@ -70,12 +70,6 @@ def main(args):
     os.makedirs(output_path, exist_ok=True)
 
     # ----------------------------------
-    # Environment Metadata
-    # ----------------------------------
-    if is_main_process():
-        save_environment(output_path, filename="environment.json")
-
-    # ----------------------------------
     # Energy Tracking Setup
     # ----------------------------------
     energy_tracker = None

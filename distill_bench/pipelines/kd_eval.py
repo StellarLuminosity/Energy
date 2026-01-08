@@ -138,9 +138,6 @@ def eval_main(args):
     eval_output_dir = os.path.join(config.output_dir, "evaluation")
     os.makedirs(eval_output_dir, exist_ok=True)
 
-    # Save environment metadata
-    save_environment(eval_output_dir, filename="environment.json")
-
     # Setup energy tracking
     energy_tracker = None
     if getattr(config, "energy_enabled", False):

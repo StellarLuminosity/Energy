@@ -2,20 +2,24 @@
 #SBATCH --job-name=tulu_dataset_preprocess
 #SBATCH --exclusive
 #SBATCH --output=/scratch/klambert/run_logs/%x_%j.out                
-#SBATCH --error=/scratch/klambert/run_logs/%x_%j.err 
-#SBATCH --partition=gpubase_h100_b2                                             
-#SBATCH --gres=gpu:h100:1
-#SBATCH --cpus-per-task=4                                                                     
+#SBATCH --error=/scratch/klambert/run_logs/%x_%j.err                                            
+#SBATCH --partition=gpubase_h100_b2
+#SBATCH --cpus-per-task=16                                                                     
 #SBATCH --mem=120GB
 #SBATCH --account=aip-craffel                                             
 #SBATCH --time=6:00:00
 
+# Extra Args:
+    # --partition=gpubase_h100_b2  
+    # --gres=gpu:h100:1
+
 # Unified experiment launcher for KD/SFT/DPO pipelines (single-GPU)
-# srun --exclusive -c 4 --gres=gpu:l40s:1 --partition=gpubase_l40s_b3 --mem=120GB --pty --time=7:00:00 --account=aip-craffel bash
-# srun -c 4 --gres=gpu:h100:1 --partition=gpubase_h100_b1 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
+# Exclusive L40: srun --exclusive -c 16 --gres=gpu:l40s:1 --partition=gpubase_l40s_b3 --mem=120GB --pty --time=7:00:00 --account=aip-craffel bash
+# 1 H100:        srun -c 16 --gres=gpu:h100:1 --partition=gpubase_h100_b1 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
+# CPU-only:      srun -c 16 --partition=gpubase_h100_b1 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
 
 # Get config path and extra args
-CONFIG_PATH=${1:-"configs/experiments/kd_7b_to_1b.yaml"}
+CONFIG_PATH=${1:-"configs/experiments/kd_32b_to_1b.yaml"}
 EXTRA_ARGS="${@:2}"
 
 echo "==============================================="
