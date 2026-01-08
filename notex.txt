@@ -18,6 +18,7 @@ KD:
 
 SFT:
 - Synthetic dataset path: /scratch/klambert/dataset/synthetic_32b_to_1b
+- Env metadata, checkpoints, and model: /scratch/klambert/model_log/energy_experiments/sft_32b_to_1b
 
 DPO:
 - Env metadata, checkpoints, and model: /scratch/klambert/model_log/energy_experiments/dpo_32b_to_1b

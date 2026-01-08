@@ -28,6 +28,7 @@ dpo:
     top_p: 0.9
     max_new_tokens: 256
     scoring_method: "likelihood"
+  preference_dataset_path: "/scratch/klambert/dataset/dpo_preference_dataset" # path to save teacher labels
 
 # Output
 output:

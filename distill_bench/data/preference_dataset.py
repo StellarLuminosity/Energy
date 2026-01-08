@@ -52,10 +52,10 @@ def _load_prompt_dataset(config: Config) -> datasets.Dataset:
     """
     Load prompts from preprocessed Tulu-style dataset (train split).
     """
-    if config.dataset_path and Path(config.dataset_path).exists():
+    try:
         ds = datasets.load_from_disk(config.dataset_path)
-    else:
-        ds = datasets.load_dataset(config.dataset_name)
+    except Exception as e:
+        print(f"Failed to load preference prompt dataset: {e}")
 
     return ds["train"] if isinstance(ds, datasets.DatasetDict) else ds
 
@@ -201,7 +201,7 @@ def generate_preference_dataset(
     dataset = datasets.Dataset.from_list(pairs)
     dataset = dataset.train_test_split(test_size=0.05, seed=config.seed)
 
-    save_path = config.dpo_preference_dataset_path or (Path(config.output_dir) / "preference_dataset")
+    save_path = config.preference_dataset_path
     save_path = Path(save_path)
     save_path.mkdir(parents=True, exist_ok=True)
     dataset.save_to_disk(save_path)
