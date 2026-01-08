@@ -10,6 +10,7 @@ from pathlib import Path
 from distill_bench.core.config_loader import load_config
 from distill_bench.core.energy_logger import EnergyTracker
 
+
 # ----------------------------------
 # Helper Functions
 # ----------------------------------
@@ -25,13 +26,13 @@ def create_response_labels(sample, tokenizer):
     labels = input_ids.clone()
     labels.fill_(-100)
 
-    response_ids = tokenizer("<|assistant|>\n", add_special_tokens=False)["input_ids"]        # Change according to different templates
+    response_ids = tokenizer("<|assistant|>\n", add_special_tokens=False)["input_ids"]  # Change according to different templates
     start_pos = -1
     for i in range(len(input_ids) - len(response_ids) + 1):
         if input_ids[i : i + len(response_ids)].tolist() == response_ids:
             start_pos = i + len(response_ids)
             break
-    
+
     end_pos = len(input_ids)
     # last token with mask==1
     last_valid = attn.nonzero(as_tuple=True)[0].max().item()
@@ -41,6 +42,7 @@ def create_response_labels(sample, tokenizer):
     labels = labels.masked_fill(attn == 0, -100)
 
     return labels
+
 
 def format_chat_data(sample, tokenizer):
     return {"chat_text": tokenizer.apply_chat_template(sample["messages"], tokenize=False)}
@@ -67,7 +69,7 @@ def add_labels(sample, tokenizer):
 
 def contains_complete_response_template(sample, tokenizer):
     """Check if the example contains the complete assistant response template."""
-    response_template_ids = tokenizer("<|assistant|>\n")["input_ids"]       # Change based on model/tokenizer
+    response_template_ids = tokenizer("<|assistant|>\n")["input_ids"]  # Change based on model/tokenizer
 
     for start_idx in range(len(sample["input_ids"]) - len(response_template_ids) + 1):
         if sample["input_ids"][start_idx : start_idx + len(response_template_ids)].tolist() == response_template_ids:
@@ -130,7 +132,9 @@ def main(config, energy_tracker: EnergyTracker = None, stage_name: str = "tulu_p
     # Tokenize the text
     # --------------------------
     print("\n=== TOKENIZING TEXT ===")
-    tokenized_dataset = processed_dataset.map(lambda x: tokenize_text(x, tokenizer), remove_columns=["messages", "source"], num_proc=32)
+    tokenized_dataset = processed_dataset.map(
+        lambda x: tokenize_text(x, tokenizer), remove_columns=["messages", "source"], num_proc=32
+    )
     print(f"Dataset features after tokenization: {tokenized_dataset['train'].features}")
 
     print(f"Train example input_ids shape: {torch.tensor(tokenized_dataset['train'][0]['input_ids']).shape}")
@@ -168,31 +172,29 @@ def main(config, energy_tracker: EnergyTracker = None, stage_name: str = "tulu_p
 
     save_path = config.dataset_path
     if os.path.exists(save_path):
-        shutil.rmtree(save_path) 
-    final_dataset.save_to_disk(save_path)
+        shutil.rmtree(save_path)
+    clean_dataset = final_dataset.remove_columns(["chat_text"])
+    clean_dataset.save_to_disk(save_path)
     print(f"Dataset saved to: {save_path}")
-
-    # ------ Save a clean version with only required columns for training ------
-    clean_dataset = final_dataset.remove_columns(['chat_text'])  # Keep id for potential future use
-    clean_save_path = save_path + "_clean"
-    if os.path.exists(clean_save_path):
-        shutil.rmtree(clean_save_path)
-    clean_dataset.save_to_disk(clean_save_path)
-    print(f"Clean dataset (no chat_text) saved to: {clean_save_path}")
     # ------- End saving code ------------
+
+    if energy_tracker and started_here:
+        total_examples = len(final_dataset["train"]) + len(final_dataset["test"])
+        energy_tracker.add_tokens(total_examples)
+        energy_tracker.end_stage(tokens_processed=total_examples)
 
     # ------ Verify token IDs are within vocabulary range ------
     print("\n=== VERIFYING TOKEN IDs ===")
     print("Checking token ID ranges in first 1000 samples...")
 
     max_token_id = 0
-    min_token_id = float('inf')
+    min_token_id = float("inf")
 
-    for i, example in enumerate(final_dataset['train'].select(range(min(1000, len(final_dataset['train']))))):
-        input_ids = example['input_ids']
+    for i, example in enumerate(final_dataset["train"].select(range(min(1000, len(final_dataset["train"]))))):
+        input_ids = example["input_ids"]
         if isinstance(input_ids, torch.Tensor):
             input_ids = input_ids.tolist()
-        
+
         max_token_id = max(max_token_id, max(input_ids))
         min_token_id = min(min_token_id, min(input_ids))
 
@@ -200,29 +202,26 @@ def main(config, energy_tracker: EnergyTracker = None, stage_name: str = "tulu_p
     print(f"Tokenizer vocab size: {len(tokenizer)}")
 
     if max_token_id >= len(tokenizer):
-        print(f"❌ ERROR: Max token ID ({max_token_id}) >= vocab size ({len(tokenizer)})")
+        print(f"   ERROR: Max token ID ({max_token_id}) >= vocab size ({len(tokenizer)})")
         print(f"   This will cause CUDA errors during training!")
         print(f"   Check that you're using the correct tokenizer.")
     else:
         print(f"✓ All token IDs are within vocabulary range!")
 
     print("\nDataset processing complete!")
-    if energy_tracker and started_here:
-        total_examples = len(final_dataset["train"]) + len(final_dataset["test"])
-        energy_tracker.add_tokens(total_examples)
-        energy_tracker.end_stage(tokens_processed=total_examples)
 
 
 if __name__ == "__main__":
     import argparse
-    
+
     parser = argparse.ArgumentParser(description="Preprocess Tulu dataset")
-    parser.add_argument("--config", type=str, required=True,
-                        help="Path to experiment config YAML")
+    parser.add_argument("--config", type=str, required=True, help="Path to experiment config YAML")
     args = parser.parse_args()
-    
+
     config = load_config(args.config)
-    run_dir = Path(getattr(config, "run_dir", None) or config.get("output.run_dir", None) or getattr(config, "output_dir", "logs"))
+    run_dir = Path(
+        getattr(config, "run_dir", None) or config.get("output.run_dir", None) or getattr(config, "output_dir", "logs")
+    )
     run_dir.mkdir(parents=True, exist_ok=True)
     tracker = EnergyTracker(run_dir=str(run_dir), experiment_name="tulu_preprocess_dataset", config=config)
 

@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=distill_logit_cache
+#SBATCH --job-name=tulu_dataset_preprocess
 #SBATCH --exclusive
 #SBATCH --output=/scratch/klambert/run_logs/%x_%j.out                
 #SBATCH --error=/scratch/klambert/run_logs/%x_%j.err 
@@ -8,7 +8,7 @@
 #SBATCH --cpus-per-task=4                                                                     
 #SBATCH --mem=120GB
 #SBATCH --account=aip-craffel                                             
-#SBATCH --time=7:00:00
+#SBATCH --time=6:00:00
 
 # Unified experiment launcher for KD/SFT/DPO pipelines (single-GPU)
 # srun --exclusive -c 4 --gres=gpu:l40s:1 --partition=gpubase_l40s_b3 --mem=120GB --pty --time=7:00:00 --account=aip-craffel bash
