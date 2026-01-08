@@ -44,21 +44,23 @@ def _write_json(path: Path, payload: Any) -> None:
 
 
 def _resolve_data_script(script_arg: str) -> Path:
-    """Resolve a data script path from a name or path."""
+    """Resolve a data script path from a name or path (e.g., 'logit_caching')."""
+    # Direct path (with or without .py)
     candidate = Path(script_arg)
-    if candidate.is_file():
-        return candidate
     if candidate.suffix == "":
         candidate = candidate.with_suffix(".py")
     if candidate.is_file():
         return candidate
-    data_dir = Path(__file__).parent / "distill_bench" / "data"
-    alt = data_dir / candidate.name
+
+    # Look under distill_bench/data relative to this file
+    repo_root = Path(__file__).resolve().parents[2]  # .../Energy/
+    data_dir = repo_root / "distill_bench" / "data"
+    alt = data_dir / script_arg
+    if alt.suffix == "":
+        alt = alt.with_suffix(".py")
     if alt.is_file():
         return alt
-    alt2 = alt.with_suffix(".py")
-    if alt2.is_file():
-        return alt2
+
     raise FileNotFoundError(f"Data script not found: {script_arg}")
 
 
@@ -164,13 +166,9 @@ class CustomPadCollator:
 # ==================================================
 # Dataset Loading
 # ==================================================
-def get_dataset(config):
-    """Load dataset.
-
-    Args:
-        config: Config object with dataset_path
-    """
-    return datasets.load_from_disk(config.dataset_path)
+def get_dataset(dataset_path):
+    """Load dataset from path"""
+    return datasets.load_from_disk(dataset_path)
 
 
 def prepare_dataset(train_ds, eval_ds, config):

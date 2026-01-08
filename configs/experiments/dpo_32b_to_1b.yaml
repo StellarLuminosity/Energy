@@ -31,7 +31,7 @@ dpo:
 
 # Output
 output:
-  output_dir: "/scratch/klambert/model_log/energy_experiments/dpo_7b_to_1b"
+  output_dir: "/scratch/klambert/model_log/energy_experiments/dpo_32b_to_1b"
 
 # W&B override
 wandb:

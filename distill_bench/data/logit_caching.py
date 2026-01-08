@@ -51,18 +51,18 @@ def cache_teacher_logprobs(config, energy_tracker):
     total_tokens = 0
 
     tokenizer = AutoTokenizer.from_pretrained(config.tokenizer_name)
-    teacher_model = (
-        AutoModelForCausalLM.from_pretrained(
-            config.teacher_model_name,
-            torch_dtype=torch.bfloat16,
-        )
-        .to(device)
-        .eval()
+    teacher_model = AutoModelForCausalLM.from_pretrained(
+        config.teacher_model_name,
+        torch_dtype=torch.bfloat16,
+        device_map="cuda",
     )
+    teacher_model.eval()
+    teacher_model.config.use_cache = False
     teacher_model.requires_grad_(False)
     print(f"✓ Teacher model loaded on {device}")
 
-    dataset = get_dataset(config)
+    dataset_path = Path(config.dataset_path)
+    dataset = get_dataset(dataset_path=dataset_path)
     train_dataloader, test_dataloader = prepare_dataset(dataset["train"], dataset["test"], config)
 
     print("\n--> Generating Teacher Logits")

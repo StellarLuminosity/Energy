@@ -14,7 +14,7 @@ Short commands and output pointers for the KD, SFT, and DPO pipelines.
 ## Launch Commands
 - SLURM (recommended):  
   - Pipelines: `sbatch run_pipeline.sh configs/experiments/kd_7b_to_1b.yaml` (or sft/dpo configs)  
-  - Data scripts via dispatcher: `sbatch run_pipeline.sh configs/experiments/kd_7b_to_1b.yaml --data-script logit_caching`
+  - Data scripts via dispatcher: `sbatch run_pipeline.sh configs/experiments/kd_32b_to_1b.yaml --data-script logit_caching`
 - Interactive (single GPU):  
   - Pipelines: `python run_experiment.py --config <config.yaml>`  
   - Data scripts: `python run_experiment.py --config <config.yaml> --data-script <name_or_path>`

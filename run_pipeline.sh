@@ -11,6 +11,8 @@
 #SBATCH --time=7:00:00
 
 # Unified experiment launcher for KD/SFT/DPO pipelines (single-GPU)
+# srun --exclusive -c 4 --gres=gpu:l40s:1 --partition=gpubase_l40s_b3 --mem=120GB --pty --time=7:00:00 --account=aip-craffel bash
+# srun -c 4 --gres=gpu:h100:1 --partition=gpubase_h100_b1 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
 
 # Get config path and extra args
 CONFIG_PATH=${1:-"configs/experiments/kd_7b_to_1b.yaml"}
@@ -37,7 +39,7 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # Load modules
 module load gcc arrow/18.1.0
-source /home/klambert/projects/aip-craffel/shared/slm_ensemble/prj/bin/activate
+source /home/klambert/projects/aip-craffel/klambert/Energy/.venv/bin/activate
 
 # Run experiment or data script
 python run_experiment.py --config "$CONFIG_PATH" $EXTRA_ARGS

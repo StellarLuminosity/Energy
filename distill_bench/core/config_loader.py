@@ -27,6 +27,10 @@ class Config:
         self.gradient_accumulation_steps = training.get('gradient_accumulation_steps', 16)
         self.learning_rate = training.get('learning_rate', 5e-5)
         self.max_grad_norm = training.get('max_grad_norm', 1.0)
+        self.token_budget = training.get('token_budget', 0)
+        self.optimizer = training.get('optimizer', 'adamw')
+        self.schedule_type = training.get('schedule_type', 'cosine')
+        self.dtype = training.get('dtype', 'bfloat16')
         self.num_warmup_steps = training.get('num_warmup_steps', 100)
         self.num_epochs = training.get('num_epochs', 2)
         self.num_training_steps = training.get('num_training_steps', 0)
@@ -46,6 +50,9 @@ class Config:
         self.dataset_name = data.get('dataset_name', 'allenai/tulu-3-sft-mixture')
         self.dataset_path = data.get('dataset_path', '')
         self.tokenizer_name = data.get('tokenizer_name', 'allenai/OLMo-2-1124-7B-SFT')
+        self.max_sequence_length = data.get('max_sequence_length', 1024)
+        self.pad_token_id = data.get('pad_token_id', -100)
+        self.dataset_teacher_logprobs = data.get('dataset_teacher_logprobs', '')
         
         # Models
         model = self._config.get('model', {})
@@ -59,6 +66,7 @@ class Config:
         # Output
         output = self._config.get('output', {})
         self.output_dir = output.get('output_dir', './outputs')
+        self.output_run_dir = output.get('run_dir', None)
         
         # Pipeline
         self.pipeline = self._config.get('pipeline', 'kd')
@@ -68,6 +76,24 @@ class Config:
         self.alpha = distill.get('alpha', 0.5)
         self.kl_temperature = distill.get('temperature', 2.0)
         self.logprob_cache_path = distill.get('logprob_cache_path', '')
+        self.top_k_logits = distill.get('top_k_logits', None)
+
+        # Synthetic data (SFT-specific)
+        synth = self._config.get('synthetic_data', {})
+        gen = synth.get('generation', {})
+        filt = synth.get('filtering', {})
+        self.synthetic_temperature = gen.get('temperature', None)
+        self.synthetic_top_p = gen.get('top_p', None)
+        self.synthetic_max_new_tokens = gen.get('max_new_tokens', None)
+        self.synthetic_decoding_strategy = gen.get('decoding_strategy', None)
+        self.synthetic_prompt_field = gen.get('prompt_field', None)
+        self.synthetic_prompt_dataset = synth.get('prompt_dataset', None)
+        self.synthetic_num_samples = synth.get('num_samples', None)
+        self.synthetic_filter_enabled = filt.get('enabled', None)
+        self.synthetic_filter_min_length = filt.get('min_length', None)
+        self.synthetic_filter_max_length = filt.get('max_length', None)
+        self.synthetic_dataset_path = synth.get('synthetic_dataset_path', None)
+        self.synthetic_use_existing = synth.get('use_existing', None)
 
         # DPO-specific
         dpo = self._config.get('dpo', {})
@@ -77,6 +103,8 @@ class Config:
         judge_cfg = dpo.get('judge_labeling', {})
         self.dpo_judge_enabled = judge_cfg.get('enabled', False)
         self.dpo_judge_temperature = judge_cfg.get('temperature', 0.0)
+        self.dpo_judge_top_p = judge_cfg.get('top_p', None)
+        self.dpo_judge_max_new_tokens = judge_cfg.get('max_new_tokens', None)
         self.dpo_scoring_method = judge_cfg.get('scoring_method', 'likelihood')
         candidate_cfg = dpo.get('candidate_generation', {})
         self.dpo_candidate_generation_enabled = candidate_cfg.get('enabled', False)
@@ -98,6 +126,13 @@ class Config:
         self.energy_country_iso = energy.get('country_iso_code', 'USA')
         self.energy_offline_mode = energy.get('offline_mode', True)
         self.energy_rapl_root = energy.get('rapl_root', '/sys/class/powercap/intel-rapl')
+        self.energy_total_policy = energy.get('total_energy_policy', 'measured')
+
+        # Hardware assertions (optional)
+        hardware = self._config.get('hardware', {})
+        self.hardware_assert_gpu_name = hardware.get('assert_gpu_name', None)
+        self.hardware_assert_gpu_count = hardware.get('assert_gpu_count', None)
+        self.hardware_assert_cpu_brand = hardware.get('assert_cpu_brand', None)
     
     def get(self, key: str, default: Any = None) -> Any:
         """Get nested config value using dot notation."""

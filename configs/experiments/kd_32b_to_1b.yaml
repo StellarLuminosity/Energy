@@ -17,7 +17,8 @@ model:
 
 # Data (KD uses cached teacher logits)
 data:
-  dataset_path: "/scratch/klambert/dataset/logprob_cache/teacher_logprobs"
+  dataset_path: "/scratch/klambert/dataset/tulu-3-sft-mixture-olmo-preprocessed"
+  dataset_teacher_logprobs: "/scratch/klambert/dataset/logprob_cache/teacher_logprobs"
 
 # KD-specific hyperparameters
 distillation:

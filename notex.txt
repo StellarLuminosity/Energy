@@ -8,5 +8,16 @@ Results to Report - last test run of prerun.py:
   Std Dev: 4.93 W
   Samples: 601
 
+Directories to clear / check before runs:
+- For energy logs: /home/klambert/projects/aip-craffel/klambert/Energy/logs 
 
+KD:
+- For teacher logprobs: /scratch/klambert/dataset/logprob_cache/teacher_logprobs
+- Env metadata, checkpoints, and model: /scratch/klambert/model_log/energy_experiments/kd_32b_to_1b
+
+SFT:
+- Synthetic dataset path: /scratch/klambert/dataset/synthetic_32b_to_1b
+
+DPO:
+- Env metadata, checkpoints, and model: /scratch/klambert/model_log/energy_experiments/dpo_32b_to_1b
 

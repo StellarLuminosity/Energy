@@ -34,10 +34,16 @@ def main():
     # If a data script is specified, run it and exit
     if args.data_script:
         script_path = _resolve_data_script(args.data_script)
-        cmd = [sys.executable, str(script_path), "--config", args.config, *extra]
-        print(f"Running data script: {script_path}")
+
+        repo_root = Path(__file__).resolve().parent  # .../Energy
+        rel = script_path.resolve().relative_to(repo_root).with_suffix("")  # distill_bench/data/logit_caching
+        module_name = ".".join(rel.parts)  # distill_bench.data.logit_caching
+
+        cmd = [sys.executable, "-m", module_name, "--config", args.config, *extra]
+        print(f"Running data script module: {module_name}")
         print(f"With command: {' '.join(cmd)}")
-        result = subprocess.run(cmd)
+
+        result = subprocess.run(cmd, cwd=str(repo_root))
         sys.exit(result.returncode)
 
     pipeline = config.pipeline
