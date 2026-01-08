@@ -10,6 +10,7 @@ Results to Report - last test run of prerun.py:
 
 Directories to clear / check before runs:
 - For energy logs: /home/klambert/projects/aip-craffel/klambert/Energy/logs 
+- For Tulu core datset: /scratch/klambert/dataset/tulu-3-sft-mixture-preprocesse
 
 KD:
 - For teacher logprobs: /scratch/klambert/dataset/logprob_cache/teacher_logprobs
