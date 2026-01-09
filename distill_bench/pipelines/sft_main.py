@@ -18,7 +18,7 @@ from distill_bench.core.config_loader import load_config
 from distill_bench.core.energy_logger import EnergyTracker
 from distill_bench.core.environment import collect_environment
 from distill_bench.core.utils import prepare_dataset, is_main_process, main_print, fix_seed
-from distill_bench.data.synthetic_generation import load_or_generate_synthetic_dataset
+from distill_bench.data.synthetic_generation import load_synthetic_dataset
 
 
 def compute_sft_loss(model, batch, device):
@@ -220,7 +220,7 @@ def main(args):
     if energy_tracker:
         energy_tracker.start_stage("teacher_generation")
 
-    synthetic_dataset = load_or_generate_synthetic_dataset(config, energy_tracker)
+    synthetic_dataset = load_synthetic_dataset(config, energy_tracker)
 
     if energy_tracker and energy_tracker.current_stage:
         energy_tracker.end_stage()

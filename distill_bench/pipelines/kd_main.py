@@ -137,7 +137,7 @@ def main(args):
     # Dataset Loading
     # ----------------------------------
     main_print("Loading dataset...")
-    dataset = get_dataset(config)
+    dataset = get_dataset(dataset_path=config.dataset_teacher_logprobs)
     train_dataloader, eval_dataloader = prepare_dataset(
         dataset["train"],
         dataset["test"],

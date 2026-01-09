@@ -217,7 +217,7 @@ def load_or_build_preference_dataset(
     config: Config,
     tokenizer: AutoTokenizer,
     energy_tracker: Optional[EnergyTracker] = None,
-    stage_name: str = "teacher_generation",
+    stage_name: str = "teacher preference dataset label generation (dpo)",
 ) -> datasets.DatasetDict:
     """
     Always build (or reuse cached) preference dataset from teacher generations.

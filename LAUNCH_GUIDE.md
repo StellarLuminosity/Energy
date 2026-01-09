@@ -14,11 +14,11 @@ Short commands and output pointers for the KD, SFT, and DPO pipelines.
 ## Launch Commands
 - SLURM (recommended):  
   - Pipelines: `sbatch run_pipeline.sh configs/experiments/kd_7b_to_1b.yaml` (or sft/dpo configs)  
-  - Data scripts via dispatcher: `sbatch run_pipeline.sh configs/experiments/kd_32b_to_1b.yaml --data-script logit_caching`
+  - Data scripts via dispatcher: `sbatch run_pipeline.sh configs/experiments/kd_32b_to_1b.yaml --data-script logit_caching` (similarly `tulu_preprocess_dataset`, `synthetic_generation`, `preference_dataset`, `prerun`)
 - Interactive (single GPU):  
   - Pipelines: `python run_experiment.py --config <config.yaml>`  
   - Data scripts: `python run_experiment.py --config <config.yaml> --data-script <name_or_path>`
-- `--data-script` accepts a basename (e.g., `logit_caching`, `preference_dataset`, `synthetic_generation`) or a path to a data script; it bypasses the training pipeline and runs that script’s `__main__`.
+- `--data-script` accepts a basename (e.g., `logit_caching`, `preference_dataset`, `synthetic_generation`, `tulu_preprocess_dataset`, `prerun`) or a path to a data script; it bypasses the training pipeline and runs that script’s `__main__`. `prerun` dispatches to `distill_bench.core.prerun` and forwards any extra CLI flags (e.g., `--quick`).
 
 ## Pipeline-Specific Notes
 - **KD (`configs/experiments/kd_7b_to_1b.yaml`)**  
@@ -54,3 +54,5 @@ Short commands and output pointers for the KD, SFT, and DPO pipelines.
 - `logit_caching` (KD prep): reads cached/preprocessed Tulu data from `distillation.logprob_cache_path` and writes consolidated `teacher_logprobs` under that path; energy stage name `logit_caching`.
 - `synthetic_generation` (SFT prep): generates or reuses synthetic data at `synthetic_data.synthetic_dataset_path`; when run via dispatcher, energy stage name `synthetic_generation` (pipeline uses `teacher_generation`).
 - `preference_dataset` (DPO prep): builds or loads preference pairs at `dpo_preference_dataset_path` or `<output_dir>/preference_dataset`; energy stage name `preference_dataset` for standalone runs (pipeline uses `teacher_generation`).
+- `tulu_preprocess_dataset` (chat preprocessing for Tulu): tokenizes and filters chat-format data, writes to `dataset_path` from config; energy stage name `tulu_preprocess_dataset`.
+- `prerun` (pre-run validation): runs `distill_bench.core.prerun` to check idle baseline, burn-in, sampling, and hardware assertions; outputs reports under `--output-dir` (default `./prerun_validation`). Use `--quick` to shorten checks.

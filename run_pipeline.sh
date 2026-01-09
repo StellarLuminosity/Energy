@@ -1,17 +1,15 @@
 #!/bin/bash
-#SBATCH --job-name=tulu_dataset_preprocess
+#SBATCH --job-name=logit_generation
 #SBATCH --exclusive
 #SBATCH --output=/scratch/klambert/run_logs/%x_%j.out                
 #SBATCH --error=/scratch/klambert/run_logs/%x_%j.err                                            
-#SBATCH --partition=gpubase_h100_b2
+#SBATCH --partition=gpubase_h100_b3
+#SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=16                                                                     
 #SBATCH --mem=120GB
 #SBATCH --account=aip-craffel                                             
-#SBATCH --time=6:00:00
+#SBATCH --time=9:00:00
 
-# Extra Args:
-    # --partition=gpubase_h100_b2  
-    # --gres=gpu:h100:1
 
 # Unified experiment launcher for KD/SFT/DPO pipelines (single-GPU)
 # Exclusive L40: srun --exclusive -c 16 --gres=gpu:l40s:1 --partition=gpubase_l40s_b3 --mem=120GB --pty --time=7:00:00 --account=aip-craffel bash

@@ -378,6 +378,7 @@ class EnergyTracker:
         # Stage tracking
         self.stages: Dict[str, StageMetrics] = {}
         self.current_stage: Optional[str] = None
+        self._stage_dirs: Dict[str, Path] = {}
 
         # Tool instances (created per-stage)
         self._codecarbon_tracker: Optional[EmissionsTracker] = None
@@ -405,12 +406,17 @@ class EnergyTracker:
         stage_metrics = StageMetrics(stage_id=stage_id, stage_name=stage_name)
         self.stages[stage_id] = stage_metrics
 
-        # Snapshot environment and config for this stage
+        # Prepare per-stage folder under stages/
         safe_stage_name = _safe_filename(stage_name)
         safe_stage_id = _safe_filename(stage_id)
+        stage_dir = self.stages_dir / safe_stage_id
+        stage_dir.mkdir(parents=True, exist_ok=True)
+        self._stage_dirs[stage_id] = stage_dir
+
+        # Snapshot environment and config for this stage
         try:
             env_filename = f"environment_{safe_stage_name}__{safe_stage_id}.json"
-            save_environment(output_dir=str(self.stages_dir), filename=env_filename)
+            save_environment(output_dir=str(stage_dir), filename=env_filename)
         except Exception as e:
             print(f"[EnergyTracker] Warning: failed to save environment for stage '{stage_id}': {e}")
 
@@ -423,7 +429,7 @@ class EnergyTracker:
                     "config": cfg_dict,
                 }
                 cfg_filename = f"config_{safe_stage_name}__{safe_stage_id}.json"
-                _write_json(self.stages_dir / cfg_filename, cfg_payload)
+                _write_json(stage_dir / cfg_filename, cfg_payload)
             except Exception as e:
                 print(f"[EnergyTracker] Warning: failed to save config for stage '{stage_id}': {e}")
 
@@ -574,10 +580,16 @@ class EnergyTracker:
         stage_metrics.compute_derived_metrics(total_energy_policy=self.total_energy_policy)
 
         # Save stage metrics to JSON
-        stage_path = self.stages_dir / f"{_safe_filename(stage_id)}.json"
+        safe_stage_id = _safe_filename(stage_id)
+        stage_dir = self._stage_dirs.get(stage_id, self.stages_dir / safe_stage_id)
+        stage_dir.mkdir(parents=True, exist_ok=True)
+        stage_path = stage_dir / f"{safe_stage_id}.json"
+        stage_path_root = self.stages_dir / f"{safe_stage_id}.json"
         payload = stage_metrics.to_dict(include_power_samples=True)
         payload["nvml_poll_interval_ms"] = self.nvml_poll_interval_ms
         _write_json(stage_path, payload)
+        if stage_path_root != stage_path:
+            _write_json(stage_path_root, payload)
 
         print(f"[EnergyTracker] Ended stage: {stage_id}")
         print(f"  Duration: {stage_metrics.duration_seconds:.2f}s")
@@ -628,6 +640,11 @@ class EnergyTracker:
 
         summary_file = self.energy_root / "experiment_summary.json"
         _write_json(summary_file, summary)
+        for stage_id in self.stages.keys():
+            safe_stage_id = _safe_filename(stage_id)
+            stage_dir = self._stage_dirs.get(stage_id, self.stages_dir / safe_stage_id)
+            stage_dir.mkdir(parents=True, exist_ok=True)
+            _write_json(stage_dir / "experiment_summary.json", summary)
         print(f"[EnergyTracker] Summary saved to: {summary_file}")
         return summary_file
 

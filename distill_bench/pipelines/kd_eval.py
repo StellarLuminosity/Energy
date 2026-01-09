@@ -150,7 +150,7 @@ def eval_main(args):
 
     # Load dataset
     print("Loading test dataset...")
-    dataset = get_dataset(config)
+    dataset = get_dataset(dataset_path=config.dataset_teacher_logprobs)
 
     # Create dataloader
     _, eval_dataloader = prepare_dataset(

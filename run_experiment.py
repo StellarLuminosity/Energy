@@ -33,6 +33,15 @@ def main():
 
     # If a data script is specified, run it and exit
     if args.data_script:
+        # Special-case prerun (not in distill_bench/data and does not take --config)
+        if args.data_script == "prerun":
+            module_name = "distill_bench.core.prerun"
+            cmd = [sys.executable, "-m", module_name, *extra]
+            print(f"Running prerun module: {module_name}")
+            print(f"With command: {' '.join(cmd)}")
+            result = subprocess.run(cmd, cwd=str(Path(__file__).resolve().parent))
+            sys.exit(result.returncode)
+
         script_path = _resolve_data_script(args.data_script)
 
         repo_root = Path(__file__).resolve().parent  # .../Energy
