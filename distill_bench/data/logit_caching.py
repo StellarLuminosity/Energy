@@ -78,6 +78,7 @@ def cache_teacher_logprobs(config, energy_tracker):
                 input_ids = batch["input_ids"].to(device)
                 attention_mask = batch["attention_mask"].to(device)
                 labels = batch["labels"]  # remain on CPU
+
                 logits = teacher_model(input_ids=input_ids, attention_mask=attention_mask).logits  # [batch, seq_len, vocab_size]
                 logprobs = F.log_softmax(logits / config.temperature, dim=-1)
                 values, indices = torch.topk(logprobs, k=100, dim=-1)  # [B, T, K]
@@ -101,12 +102,8 @@ def cache_teacher_logprobs(config, energy_tracker):
                     total_tokens += tok
                     energy_tracker.add_tokens(tok)
 
-                    if b > 5:
-                        break
-
                 # Save in chunks
-                # if samples_in_chunk >= 3200:
-                if samples_in_chunk >= 3:
+                if samples_in_chunk >= 3200:
                     chunk_path = os.path.join(save_dir, f"chunk_{chunk_id}")
                     if os.path.exists(chunk_path):
                         shutil.rmtree(chunk_path)
@@ -115,7 +112,6 @@ def cache_teacher_logprobs(config, energy_tracker):
                     save_ds = {k: [] for k in save_ds}  # Reset buffer
                     chunk_id += 1
                     samples_in_chunk = 0
-                    break
 
         # Save final chunk if any
         if save_ds["input_ids"]:
