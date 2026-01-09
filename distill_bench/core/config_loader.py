@@ -75,7 +75,7 @@ class Config:
         # Distillation (KD-specific)
         distill = self._config.get("distillation", {})
         self.alpha = distill.get("alpha", 0.5)
-        self.kl_temperature = distill.get("temperature", 2.0)
+        self.temperature = distill.get("temperature", 1.0)
         self.logprob_cache_path = distill.get("logprob_cache_path", "")
         self.top_k_logits = distill.get("top_k_logits", None)
 
