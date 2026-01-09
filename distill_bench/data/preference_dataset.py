@@ -50,7 +50,7 @@ def _build_prompt_text(example: Dict, tokenizer: AutoTokenizer) -> Optional[str]
 
 def _load_prompt_dataset(config: Config) -> datasets.Dataset:
     """
-    Load prompts from preprocessed Tulu-style dataset (train split).
+    Load prompts for processed dataset.
     """
     try:
         ds = datasets.load_from_disk(config.dataset_path)
@@ -358,15 +358,18 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Generate preference dataset with energy tracking")
     parser.add_argument("--config", type=str, required=True, help="Path to experiment config YAML")
+    parser.add_argument("--run-dir", type=str, default=None, help="Override output.run_dir for this run")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
+    if args.run_dir:
+        cfg.override_run_dir(args.run_dir)
     tokenizer = AutoTokenizer.from_pretrained(cfg.tokenizer_name)
 
     # Initialize energy tracker for standalone use (stage name = filename)
     run_dir = Path(getattr(cfg, "run_dir", None) or cfg.get("output.run_dir", None) or getattr(cfg, "output_dir", "logs"))
     run_dir.mkdir(parents=True, exist_ok=True)
-    tracker = EnergyTracker(run_dir=str(run_dir), experiment_name="preference_dataset", config=cfg)
+    tracker = EnergyTracker(run_dir=str(run_dir), experiment_name="dpo_preference_dataset", config=cfg)
 
     dataset = generate_preference_dataset(cfg, tokenizer, tracker, stage_name="preference_dataset")
     tracker.save_summary()

@@ -132,9 +132,12 @@ if __name__ == "__main__":
 
     parser = argparse.ArgumentParser(description="Cache teacher logprobs for KD")
     parser.add_argument("--config", type=str, required=True, help="Path to experiment config YAML")
+    parser.add_argument("--run-dir", type=str, default=None, help="Override output.run_dir for this run")
     args = parser.parse_args()
 
     config = load_config(args.config)
+    if args.run_dir:
+        config.override_run_dir(args.run_dir)
 
     run_dir = Path(getattr(config, "run_dir", None) or config.get("output.run_dir", None))
     run_dir.mkdir(parents=True, exist_ok=True)

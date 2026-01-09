@@ -20,6 +20,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--config", type=str, required=True, help="Path to experiment config YAML")
+    parser.add_argument("--run-dir", type=str, default=None, help="Override output.run_dir for this run")
     parser.add_argument(
         "--data-script",
         type=str,
@@ -30,6 +31,8 @@ def main():
 
     # Load config to determine pipeline type
     config = load_config(args.config)
+    if args.run_dir:
+        config.override_run_dir(args.run_dir)
 
     # If a data script is specified, run it and exit
     if args.data_script:
@@ -48,7 +51,10 @@ def main():
         rel = script_path.resolve().relative_to(repo_root).with_suffix("")  # distill_bench/data/logit_caching
         module_name = ".".join(rel.parts)  # distill_bench.data.logit_caching
 
-        cmd = [sys.executable, "-m", module_name, "--config", args.config, *extra]
+        cmd = [sys.executable, "-m", module_name, "--config", args.config]
+        if args.run_dir:
+            cmd += ["--run-dir", args.run_dir]
+        cmd += list(extra)
         print(f"Running data script module: {module_name}")
         print(f"With command: {' '.join(cmd)}")
 
@@ -67,7 +73,7 @@ def main():
     if pipeline == "kd":
         from distill_bench.pipelines import kd_main
 
-        kd_args = argparse.Namespace(config=args.config)
+        kd_args = argparse.Namespace(config=args.config, run_dir=args.run_dir)
         kd_main.main(kd_args)
 
     elif pipeline == "sft":

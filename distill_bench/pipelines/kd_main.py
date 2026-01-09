@@ -49,6 +49,9 @@ def main(args):
 
     # Load config
     config = load_config(args.config)
+    run_dir_override = getattr(args, "run_dir", None)
+    if run_dir_override:
+        config.override_run_dir(run_dir_override)
 
     # ----------------------------------
     # Device Setup (single-process)

@@ -29,6 +29,9 @@ from distill_bench.data.preference_dataset import (
 def main(args):
     """Run the DPO pipeline."""
     config = load_config(args.config)
+    run_dir_override = getattr(args, "run_dir", None)
+    if run_dir_override:
+        config.override_run_dir(run_dir_override)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     fix_seed(config.seed)

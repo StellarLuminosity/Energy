@@ -157,6 +157,22 @@ class Config:
             return object.__getattribute__(self, name)
         return self._config.get(name, None)
 
+    def override_run_dir(self, run_dir: Optional[str]) -> None:
+        """
+        Override output.run_dir at runtime (e.g., via CLI flag).
+        """
+        if not run_dir:
+            return
+
+        if "output" not in self._config or not isinstance(self._config["output"], dict):
+            self._config["output"] = {}
+        self._config["output"]["run_dir"] = run_dir
+
+        # Keep a top-level alias for getattr(..., "run_dir", None)
+        self._config["run_dir"] = run_dir
+        self.output_run_dir = run_dir
+        self.run_dir = run_dir
+
 
 def load_yaml(filepath: Path) -> Dict[str, Any]:
     """Load a YAML file."""

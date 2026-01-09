@@ -15,6 +15,8 @@
 # Exclusive L40: srun --exclusive -c 16 --gres=gpu:l40s:1 --partition=gpubase_l40s_b3 --mem=120GB --pty --time=7:00:00 --account=aip-craffel bash
 # 1 H100:        srun -c 16 --gres=gpu:h100:1 --partition=gpubase_h100_b1 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
 # CPU-only:      srun -c 16 --partition=gpubase_h100_b1 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
+# Example override of run_dir:
+#   bash run_pipeline.sh configs/experiments/dpo_32b_to_1b.yaml --run-dir /tmp/my_run
 
 # Get config path and extra args
 CONFIG_PATH=${1:-"configs/experiments/kd_32b_to_1b.yaml"}

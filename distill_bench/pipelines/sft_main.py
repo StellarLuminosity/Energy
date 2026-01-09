@@ -164,6 +164,9 @@ def main(args):
     """Main SFT training pipeline."""
     # Load config
     config = load_config(args.config)
+    run_dir_override = getattr(args, "run_dir", None)
+    if run_dir_override:
+        config.override_run_dir(run_dir_override)
 
     # Setup
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
