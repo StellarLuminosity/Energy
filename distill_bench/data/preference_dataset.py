@@ -99,7 +99,7 @@ def generate_preference_dataset(
     max_new_tokens = config.get("dpo.judge_labeling.max_new_tokens", 256)
     top_p = config.get("dpo.judge_labeling.top_p", 0.9)
     temperature = config.dpo_judge_temperature
-    prompt_limit = config.get("dpo.max_prompts", 2000)
+    prompt_limit = config.get("dpo.max_prompts", 32000)
     started_here = False
 
     if energy_tracker and energy_tracker.current_stage is None:
@@ -373,5 +373,3 @@ if __name__ == "__main__":
 
     dataset = generate_preference_dataset(cfg, tokenizer, tracker, stage_name="preference_dataset")
     tracker.save_summary()
-
-# TODO: this needs edit, especially the starts_here parameter

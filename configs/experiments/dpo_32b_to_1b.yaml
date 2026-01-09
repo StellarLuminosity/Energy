@@ -22,11 +22,12 @@ model:
 dpo:
   # DPO hyperparameters
   beta: 0.1  # Temperature parameter for DPO loss
+  max_prompts: 32000 # train + test
   # Teacher generation settings for preference pairs
   judge_labeling:
     temperature: 0.7
     top_p: 0.9
-    max_new_tokens: 256
+    max_new_tokens: 512
     scoring_method: "likelihood"
   preference_dataset_path: "/scratch/klambert/dataset/dpo_preference_dataset" # path to save teacher labels
 
