@@ -110,9 +110,11 @@ def generate_preference_dataset(
     teacher_model = AutoModelForCausalLM.from_pretrained(
         config.teacher_model_name,
         torch_dtype=torch.bfloat16,
-    ).to(device)
+        device_map="cuda",
+    )
     teacher_model.eval()
 
+    print(f"Loading prompt dataset...")
     prompt_ds = _load_prompt_dataset(config)
     # Shuffle with a fixed seed for determinism before subsetting.
     prompt_seed = getattr(config, "seed", 42)
@@ -123,6 +125,7 @@ def generate_preference_dataset(
     pairs: List[Dict] = []
     total_tokens = 0
 
+    counter = 0
     for idx, example in enumerate(tqdm(prompt_ds, desc="Generating preference pairs")):
         prompt_text = _build_prompt_text(example, tokenizer)
         if prompt_text is None:
@@ -194,6 +197,10 @@ def generate_preference_dataset(
                 },
             }
         )
+
+        if counter > 10:
+            print("Finished loop")
+            break
 
     teacher_model.to("cpu")
     torch.cuda.empty_cache()

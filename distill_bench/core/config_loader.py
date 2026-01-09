@@ -99,7 +99,7 @@ class Config:
         # DPO-specific
         dpo = self._config.get("dpo", {})
         self.dpo_beta = dpo.get("beta", 0.1)
-        self.dpo_preference_dataset_path = dpo.get("preference_dataset_path", "")
+        self.preference_dataset_path = dpo.get("preference_dataset_path", "")
         judge_cfg = dpo.get("judge_labeling", {})
         self.dpo_judge_enabled = judge_cfg.get("enabled", False)
         self.dpo_judge_temperature = judge_cfg.get("temperature", 0.0)
