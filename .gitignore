@@ -12,4 +12,3 @@ run_script.sh
 scripts/
 tmp/
 prerun_validation/
-logs/
