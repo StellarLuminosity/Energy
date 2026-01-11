@@ -230,7 +230,7 @@ def generate_preference_dataset(
         if prompt_text is None:
             continue
 
-        # Quick length check (cheap) before batching: skip near-max prompts
+        # Quick length check before batching: skip near-max prompts
         # Note: tokenize without padding to estimate length accurately
         prompt_ids = tokenizer(
             prompt_text,
@@ -254,103 +254,6 @@ def generate_preference_dataset(
     # Flush leftovers
     if counter < 10:
         _flush_batch()
-
-    for idx, example in enumerate(tqdm(prompt_ds, desc="Generating preference pairs")):
-        prompt_text = _build_prompt_text(example, tokenizer)
-        if prompt_text is None:
-            continue
-
-        prompt_inputs = tokenizer(
-            prompt_text,
-            return_tensors="pt",
-            truncation=True,
-            max_length=max_length,
-        ).to(device)
-
-        prompt_len = prompt_inputs["input_ids"].shape[1]
-        if prompt_len >= max_length - 4:
-            continue
-
-        responses: List[str] = []
-        logps: List[float] = []
-        seeds = [config.seed + 2 * idx, config.seed + 2 * idx + 1]
-
-        for resp_seed in seeds:
-            torch.manual_seed(resp_seed)
-            gen = teacher_model.generate(
-                **prompt_inputs,
-                max_new_tokens=max_new_tokens,
-                do_sample=True,
-                temperature=temperature,
-                top_p=top_p,
-                num_return_sequences=2,
-                return_dict_in_generate=True,
-                output_scores=True,
-                pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
-            )
-
-            sequences = gen.sequences  # shape: (2, prompt_len + gen_len)
-            # log-prob for generated tokens only
-            transition_scores = teacher_model.compute_transition_scores(
-                sequences, gen.scores, normalize_logits=True
-            )  # shape: (2, gen_len)
-            logps = transition_scores.sum(dim=1).tolist()  # [logp_resp0, logp_resp1]
-            responses = tokenizer.batch_decode([sequences[0, prompt_len:], sequences[1, prompt_len:]], skip_special_tokens=True)
-            responses = [r.strip() for r in responses]
-
-            full_sequence = gen[0]
-            response_tokens = full_sequence[prompt_len:]
-            responses.append(tokenizer.decode(response_tokens, skip_special_tokens=True).strip())
-
-            attention_mask = torch.ones_like(full_sequence).unsqueeze(0).to(device)
-            input_ids = full_sequence.unsqueeze(0).to(device)
-            logps.append(_sequence_logprob(teacher_model, input_ids, attention_mask, prompt_len))
-
-            total_tokens += int(attention_mask.sum().item())
-            if energy_tracker:
-                energy_tracker.add_tokens(int(attention_mask.sum().item()))
-
-        if len(responses) != 2 or len(logps) != 2:
-            continue
-
-        if logps[0] >= logps[1]:
-            chosen, rejected = responses[0], responses[1]
-            logp_chosen, logp_rejected = logps[0], logps[1]
-            seeds_pair = (seeds[0], seeds[1])
-        else:
-            chosen, rejected = responses[1], responses[0]
-            logp_chosen, logp_rejected = logps[1], logps[0]
-            seeds_pair = (seeds[1], seeds[0])
-
-        pairs.append(
-            {
-                "prompt": example.get("prompt", ""),
-                "chosen": chosen,
-                "rejected": rejected,
-                "teacher_logp_chosen": logp_chosen,
-                "teacher_logp_rejected": logp_rejected,
-                "meta": {
-                    "prompt_id": idx,
-                    "seed1": seeds_pair[0],
-                    "seed2": seeds_pair[1],
-                    "temperature": temperature,
-                    "top_p": top_p,
-                    "max_new_tokens": max_new_tokens,
-                },
-            }
-        )
-
-        counter += 1
-        if counter >= 10:
-            print("Reached early stop after 10 generated pairs")
-            break
-
-    if not pairs:
-        raise ValueError(
-            "No preference pairs were generated. Ensure the prompt dataset includes text fields "
-            "(e.g., `messages`, `prompt`, or `chat_text`) and that prompts are shorter than the "
-            f"max sequence length ({max_length})."
-        )
 
     main_print(f"Generated {len(pairs)} preference pairs from {len(prompt_ds)} prompts")
     teacher_model.to("cpu")
