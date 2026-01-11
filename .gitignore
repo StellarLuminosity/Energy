@@ -13,3 +13,4 @@ run_script.sh
 scripts/
 tmp/
 prerun_validation/
+rebuild_teacher_logprobs.py
