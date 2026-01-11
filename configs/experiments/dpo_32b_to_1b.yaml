@@ -22,7 +22,7 @@ model:
 dpo:
   # DPO hyperparameters
   beta: 0.1  # Temperature parameter for DPO loss
-  max_prompts: 32000 # train + test
+  max_prompts: 8000 # train + test
   # Teacher generation settings for preference pairs
   judge_labeling:
     temperature: 0.7

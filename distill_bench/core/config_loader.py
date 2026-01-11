@@ -102,7 +102,7 @@ class Config:
         self.preference_dataset_path = dpo.get("preference_dataset_path", "")
         judge_cfg = dpo.get("judge_labeling", {})
         self.dpo_judge_enabled = judge_cfg.get("enabled", False)
-        self.dpo_judge_temperature = judge_cfg.get("temperature", 0.0)
+        self.temperature = judge_cfg.get("temperature", 0.7)
         self.dpo_judge_top_p = judge_cfg.get("top_p", None)
         self.dpo_judge_max_new_tokens = judge_cfg.get("max_new_tokens", None)
         self.dpo_scoring_method = judge_cfg.get("scoring_method", "likelihood")

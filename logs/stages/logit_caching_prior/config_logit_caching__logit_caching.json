@@ -1,6 +1,6 @@
 {
-  "stage_name": "preference_dataset",
-  "stage_id": "preference_dataset",
+  "stage_name": "logit_caching",
+  "stage_id": "logit_caching",
   "config": {
     "experiment": {
       "seed": 42,

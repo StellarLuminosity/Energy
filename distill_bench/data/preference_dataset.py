@@ -48,41 +48,43 @@ def _build_prompt_text(example: Dict, tokenizer: AutoTokenizer) -> Optional[str]
     return None
 
 
+def _has_prompt_fields(ds: datasets.Dataset) -> bool:
+    """Return True if dataset includes a prompt text column."""
+    columns = set(ds.column_names)
+    return bool({"messages", "prompt", "chat_text"} & columns)
+
+
 def _load_prompt_dataset(config: Config) -> datasets.Dataset:
     """
     Load prompts for processed dataset.
     """
-    try:
-        ds = datasets.load_from_disk(config.dataset_path)
-    except Exception as e:
-        print(f"Failed to load preference prompt dataset: {e}")
+    errors = []
 
-    return ds["train"] if isinstance(ds, datasets.DatasetDict) else ds
+    dataset_name = config.get("dpo.prompt_dataset_name", None) or config.dataset_name
+    if dataset_name:
+        try:
+            ds = datasets.load_dataset(dataset_name, split="train")
+            if _has_prompt_fields(ds):
+                return ds
+            errors.append(
+                f"prompt dataset '{dataset_name}' is missing prompt text columns (`messages`, `prompt`, or `chat_text`)"
+            )
+        except Exception as e:
+            errors.append(f"failed to load prompt dataset {dataset_name}: {e}")
 
+    prompt_dataset_path = config.get("dpo.prompt_dataset_path", None) or config.dataset_path
+    if prompt_dataset_path:
+        try:
+            ds = datasets.load_from_disk(prompt_dataset_path)
+            ds = ds["train"] if isinstance(ds, datasets.DatasetDict) else ds
+            if _has_prompt_fields(ds):
+                return ds
+            errors.append("dataset on disk is missing prompt text columns (`messages`, `prompt`, or `chat_text`)")
+        except Exception as e:
+            errors.append(f"failed to load prompt dataset from disk: {e}")
 
-def _sequence_logprob(
-    model: AutoModelForCausalLM,
-    input_ids: torch.Tensor,
-    attention_mask: torch.Tensor,
-    prompt_length: int,
-) -> float:
-    """Compute summed log-probability of the response tokens (post prompt)."""
-    with torch.no_grad():
-        outputs = model(
-            input_ids=input_ids,
-            attention_mask=attention_mask,
-        )
-        logits = outputs.logits[:, :-1, :]
-        log_probs = torch.log_softmax(logits, dim=-1)
-
-        target_ids = input_ids[:, 1:]
-        token_log_probs = log_probs.gather(-1, target_ids.unsqueeze(-1)).squeeze(-1)
-
-        seq_len = token_log_probs.size(1)
-        positions = torch.arange(seq_len, device=input_ids.device).unsqueeze(0)
-        response_mask = (positions >= (prompt_length - 1)) & attention_mask[:, 1:].bool()
-
-        return (token_log_probs * response_mask).sum(dim=1).item()
+    error_str = "; ".join(errors) if errors else "no prompt dataset configured"
+    raise ValueError(f"Unable to load prompt dataset for preference generation: {error_str}")
 
 
 def generate_preference_dataset(
@@ -98,8 +100,8 @@ def generate_preference_dataset(
     max_length = config.get("data.max_sequence_length", 1024)
     max_new_tokens = config.get("dpo.judge_labeling.max_new_tokens", 256)
     top_p = config.get("dpo.judge_labeling.top_p", 0.9)
-    temperature = config.dpo_judge_temperature
-    prompt_limit = config.get("dpo.max_prompts", 32000)
+    temperature = config.temperature
+    prompt_limit = config.get("dpo.max_prompts", 8000)
     started_here = False
 
     if energy_tracker and energy_tracker.current_stage is None:
@@ -124,8 +126,135 @@ def generate_preference_dataset(
 
     pairs: List[Dict] = []
     total_tokens = 0
-
     counter = 0
+
+    batch_size = config.batch_size
+    tokenizer.padding_side = "left"
+    pad_id = tokenizer.pad_token_id or tokenizer.eos_token_id
+
+    buffer_prompt_texts: List[str] = []
+    buffer_examples: List[Dict] = []
+    buffer_prompt_ids: List[int] = []
+
+    def _flush_batch():
+        nonlocal counter, total_tokens, pairs
+        if not buffer_prompt_texts:
+            return
+
+        # Tokenize as a batch
+        batch_inputs = tokenizer(
+            buffer_prompt_texts,
+            return_tensors="pt",
+            padding=True,
+            truncation=True,
+            max_length=max_length,
+        ).to(device)
+
+        prompt_lens = batch_inputs["attention_mask"].sum(dim=1).tolist()
+        padded_prompt_len = batch_inputs["input_ids"].shape[1]
+
+        # Generate 2 responses per prompt in one call and keep per-step scores for logprobs
+        with torch.inference_mode():
+            gen = teacher_model.generate(
+                **batch_inputs,
+                max_new_tokens=max_new_tokens,
+                do_sample=True,
+                temperature=temperature,
+                top_p=top_p,
+                num_return_sequences=2,
+                return_dict_in_generate=True,
+                output_scores=True,
+                pad_token_id=pad_id,
+            )
+
+            sequences = gen.sequences  # (B*2, padded_prompt_len + gen_len)
+            transition_scores = teacher_model.compute_transition_scores(
+                sequences, gen.scores, normalize_logits=True
+            )  # (B*2, gen_len)
+
+        # For each original prompt i, its 2 generations are at indices 2*i and 2*i+1
+        B = len(buffer_prompt_texts)
+        for i in range(B):
+            idx0 = 2 * i
+            idx1 = 2 * i + 1
+
+            # Decode only generated tokens (everything after padded prompt length)
+            resp0 = tokenizer.decode(sequences[idx0, padded_prompt_len:], skip_special_tokens=True).strip()
+            resp1 = tokenizer.decode(sequences[idx1, padded_prompt_len:], skip_special_tokens=True).strip()
+
+            logp0 = float(transition_scores[idx0].sum().item())
+            logp1 = float(transition_scores[idx1].sum().item())
+
+            # Token accounting: count only generated tokens for energy bookkeeping
+            gen_len = transition_scores.size(1)
+            total_tokens += 2 * gen_len
+            if energy_tracker:
+                energy_tracker.add_tokens(2 * gen_len)
+
+            if logp0 >= logp1:
+                chosen, rejected = resp0, resp1
+                logp_chosen, logp_rejected = logp0, logp1
+            else:
+                chosen, rejected = resp1, resp0
+                logp_chosen, logp_rejected = logp1, logp0
+
+            pairs.append(
+                {
+                    "prompt": buffer_examples[i].get("prompt", ""),
+                    "chosen": chosen,
+                    "rejected": rejected,
+                    "teacher_logp_chosen": logp_chosen,
+                    "teacher_logp_rejected": logp_rejected,
+                    "meta": {
+                        "prompt_id": buffer_prompt_ids[i],
+                        "temperature": temperature,
+                        "top_p": top_p,
+                        "max_new_tokens": max_new_tokens,
+                        "prompt_len": int(prompt_lens[i]),
+                    },
+                }
+            )
+
+            counter += 1
+            if counter >= 10:
+                print("Reached early stop after 10 generated pairs")
+                return
+
+        # Clear buffers
+        buffer_prompt_texts.clear()
+        buffer_examples.clear()
+        buffer_prompt_ids.clear()
+
+    for idx, example in enumerate(tqdm(prompt_ds, desc="Generating preference pairs")):
+        prompt_text = _build_prompt_text(example, tokenizer)
+        if prompt_text is None:
+            continue
+
+        # Quick length check (cheap) before batching: skip near-max prompts
+        # Note: tokenize without padding to estimate length accurately
+        prompt_ids = tokenizer(
+            prompt_text,
+            truncation=True,
+            max_length=max_length,
+            add_special_tokens=True,
+        ).input_ids
+        prompt_len = len(prompt_ids)
+        if prompt_len >= max_length - 4:
+            continue
+
+        buffer_prompt_texts.append(prompt_text)
+        buffer_examples.append(example)
+        buffer_prompt_ids.append(idx)
+
+        if len(buffer_prompt_texts) >= batch_size:
+            _flush_batch()
+            if counter >= 10:
+                break
+
+    # Flush leftovers
+    if counter < 10:
+        _flush_batch()
+
     for idx, example in enumerate(tqdm(prompt_ds, desc="Generating preference pairs")):
         prompt_text = _build_prompt_text(example, tokenizer)
         if prompt_text is None:
@@ -148,15 +277,28 @@ def generate_preference_dataset(
 
         for resp_seed in seeds:
             torch.manual_seed(resp_seed)
-            outputs = teacher_model.generate(
+            gen = teacher_model.generate(
                 **prompt_inputs,
                 max_new_tokens=max_new_tokens,
                 do_sample=True,
                 temperature=temperature,
                 top_p=top_p,
+                num_return_sequences=2,
+                return_dict_in_generate=True,
+                output_scores=True,
                 pad_token_id=tokenizer.pad_token_id or tokenizer.eos_token_id,
             )
-            full_sequence = outputs[0]
+
+            sequences = gen.sequences  # shape: (2, prompt_len + gen_len)
+            # log-prob for generated tokens only
+            transition_scores = teacher_model.compute_transition_scores(
+                sequences, gen.scores, normalize_logits=True
+            )  # shape: (2, gen_len)
+            logps = transition_scores.sum(dim=1).tolist()  # [logp_resp0, logp_resp1]
+            responses = tokenizer.batch_decode([sequences[0, prompt_len:], sequences[1, prompt_len:]], skip_special_tokens=True)
+            responses = [r.strip() for r in responses]
+
+            full_sequence = gen[0]
             response_tokens = full_sequence[prompt_len:]
             responses.append(tokenizer.decode(response_tokens, skip_special_tokens=True).strip())
 
@@ -198,10 +340,19 @@ def generate_preference_dataset(
             }
         )
 
-        if counter > 10:
-            print("Finished loop")
+        counter += 1
+        if counter >= 10:
+            print("Reached early stop after 10 generated pairs")
             break
 
+    if not pairs:
+        raise ValueError(
+            "No preference pairs were generated. Ensure the prompt dataset includes text fields "
+            "(e.g., `messages`, `prompt`, or `chat_text`) and that prompts are shorter than the "
+            f"max sequence length ({max_length})."
+        )
+
+    main_print(f"Generated {len(pairs)} preference pairs from {len(prompt_ds)} prompts")
     teacher_model.to("cpu")
     torch.cuda.empty_cache()
 
@@ -229,7 +380,7 @@ def load_or_build_preference_dataset(
     """
     Always build (or reuse cached) preference dataset from teacher generations.
     """
-    ds_path = config.dpo_preference_dataset_path or (Path(config.output_dir) / "preference_dataset")
+    ds_path = config.preference_dataset_path or (Path(config.output_dir) / "preference_dataset")
     if Path(ds_path).exists():
         main_print(f"Loading preference dataset from: {ds_path}")
         return datasets.load_from_disk(ds_path)
