@@ -1,9 +1,9 @@
 #!/bin/bash
-#SBATCH --job-name=logit_generation
+#SBATCH --job-name=preference_dataset
 #SBATCH --exclusive
 #SBATCH --output=/scratch/klambert/run_logs/%x_%j.out                
 #SBATCH --error=/scratch/klambert/run_logs/%x_%j.err                                            
-#SBATCH --partition=gpubase_h100_b3
+#SBATCH --partition=gpubase_h100_b2
 #SBATCH --gres=gpu:h100:1
 #SBATCH --cpus-per-task=16                                                                     
 #SBATCH --mem=120GB

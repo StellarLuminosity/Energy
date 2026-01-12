@@ -126,7 +126,6 @@ def generate_preference_dataset(
 
     pairs: List[Dict] = []
     total_tokens = 0
-    counter = 0
 
     batch_size = config.batch_size
     tokenizer.padding_side = "left"
@@ -137,7 +136,7 @@ def generate_preference_dataset(
     buffer_prompt_ids: List[int] = []
 
     def _flush_batch():
-        nonlocal counter, total_tokens, pairs
+        nonlocal total_tokens, pairs
         if not buffer_prompt_texts:
             return
 
@@ -215,11 +214,6 @@ def generate_preference_dataset(
                 }
             )
 
-            counter += 1
-            if counter >= 10:
-                print("Reached early stop after 10 generated pairs")
-                return
-
         # Clear buffers
         buffer_prompt_texts.clear()
         buffer_examples.clear()
@@ -248,12 +242,9 @@ def generate_preference_dataset(
 
         if len(buffer_prompt_texts) >= batch_size:
             _flush_batch()
-            if counter >= 10:
-                break
 
     # Flush leftovers
-    if counter < 10:
-        _flush_batch()
+    _flush_batch()
 
     main_print(f"Generated {len(pairs)} preference pairs from {len(prompt_ds)} prompts")
     teacher_model.to("cpu")
