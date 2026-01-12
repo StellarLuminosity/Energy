@@ -24,7 +24,6 @@ def generate_synthetic_dataset(
 ) -> datasets.DatasetDict:
     """
     Generate synthetic dataset using teacher model.
-
     Args:
         config: Configuration object
         energy_tracker: Optional energy tracker for measuring generation
@@ -34,20 +33,19 @@ def generate_synthetic_dataset(
     """
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
-    # Get generation config
     gen_config = config.get("synthetic_data.generation", {})
     temperature = gen_config.get("temperature", 0.7)
     top_p = gen_config.get("top_p", 0.9)
     max_new_tokens = gen_config.get("max_new_tokens", 512)
     decoding_strategy = gen_config.get("decoding_strategy", "sampling")
 
-    # Get dataset config
-    prompt_dataset_name = config.get("synthetic_data.prompt_dataset", config.dataset_name)
+    max_seq_len = config.get("data.max_sequence_length", 1024)
     num_samples = config.get("synthetic_data.num_samples", 50000)
-    prompt_field = config.get("synthetic_data.prompt_field", "auto")  # 'auto', 'messages', or 'prompt'
-
-    # Get paths
     synthetic_path = config.get("synthetic_data.synthetic_dataset_path")
+    dataset_path = config.dataset_path or config.get("data.dataset_path")
+
+    if not dataset_path:
+        raise ValueError("dataset_path is not set. Run tulu_preprocess_dataset.py first.")
 
     # Start energy tracking for teacher generation (single stage)
     if energy_tracker and energy_tracker.current_stage is None:
@@ -62,11 +60,11 @@ def generate_synthetic_dataset(
     ).to(device)
     teacher_model.eval()
 
-    # Load prompt dataset
-    print(f"Loading prompt dataset: {prompt_dataset_name}")
-    prompt_dataset = datasets.load_dataset(prompt_dataset_name, split="train")
+    print(f"Loading preprocessed prompt dataset from: {dataset_path}")
+    prompt_dataset = datasets.load_from_disk(dataset_path)
+    if isinstance(prompt_dataset, datasets.DatasetDict):
+        prompt_dataset = prompt_dataset["train"]
 
-    # Sample prompts
     if len(prompt_dataset) > num_samples:
         prompt_dataset = prompt_dataset.shuffle(seed=config.seed).select(range(num_samples))
 
@@ -86,66 +84,23 @@ def generate_synthetic_dataset(
     with torch.no_grad():
         for idx, example in enumerate(tqdm(prompt_dataset, desc="Generating synthetic data")):
             try:
-                # Determine prompt field to use
-                if prompt_field == "auto":
-                    # Auto-detect: prefer 'messages', fallback to 'prompt'
-                    if "messages" in example and example["messages"]:
-                        use_messages = True
-                        use_prompt = False
-                    elif "prompt" in example and example["prompt"]:
-                        use_messages = False
-                        use_prompt = True
-                    else:
-                        continue  # No valid field found
-                elif prompt_field == "messages":
-                    use_messages = True
-                    use_prompt = False
-                else:  # prompt_field == 'prompt'
-                    use_messages = False
-                    use_prompt = True
+                input_ids = torch.tensor(example["input_ids"], device=device)
+                attention_mask = torch.tensor(example["attention_mask"], device=device)
+                existing_labels = torch.tensor(example["labels"])
 
-                # Extract or format prompt
-                if use_messages:
-                    # Extract user message(s) from messages field
-                    messages = example.get("messages", [])
-                    user_messages = [m for m in messages if m.get("role") == "user"]
-                    if not user_messages:
-                        continue
-
-                    # Apply chat template
-                    prompt_text = tokenizer.apply_chat_template(
-                        user_messages,
-                        tokenize=False,
-                        add_generation_prompt=True,
-                    )
-                elif use_prompt:
-                    # Use pre-formatted prompt field
-                    prompt_text = example.get("prompt", "")
-                    if not prompt_text:
-                        continue
-
-                    # Apply chat template if needed (wrap as user message)
-                    prompt_text = tokenizer.apply_chat_template(
-                        [{"role": "user", "content": prompt_text}],
-                        tokenize=False,
-                        add_generation_prompt=True,
-                    )
-                else:
-                    # No valid prompt field found
+                response_tokens = (existing_labels != -100).nonzero(as_tuple=True)[0]
+                if len(response_tokens) == 0:
                     continue
 
-                # Tokenize prompt (no truncation - we want full prompt)
-                prompt_inputs = tokenizer(
-                    prompt_text,
-                    return_tensors="pt",
-                    truncation=False,
-                ).to(device)
+                response_start = response_tokens[0].item()
+                if response_start == 0:
+                    continue
 
-                prompt_length = prompt_inputs["input_ids"].shape[1]
+                prompt_ids = input_ids[:response_start]
+                prompt_attention_mask = attention_mask[:response_start]
+                prompt_length = prompt_ids.shape[0]
 
-                # Skip if prompt itself is too long
-                max_seq_len = config.get("data.max_sequence_length", 1024)
-                if prompt_length >= max_seq_len - 10:  # Need space for at least short response
+                if prompt_length >= max_seq_len - 10:
                     continue
 
                 # Generate response
@@ -160,7 +115,8 @@ def generate_synthetic_dataset(
                     generation_kwargs["top_p"] = top_p
 
                 outputs = teacher_model.generate(
-                    **prompt_inputs,
+                    input_ids=prompt_ids.unsqueeze(0),
+                    attention_mask=prompt_attention_mask.unsqueeze(0),
                     **generation_kwargs,
                 )
 
@@ -169,8 +125,8 @@ def generate_synthetic_dataset(
                 generated_tokens = full_sequence[prompt_length:]
 
                 # Create labels: mask prompt (-100), keep response
-                labels = torch.full_like(full_sequence, fill_value=-100)
-                labels[prompt_length:] = full_sequence[prompt_length:]
+                synthetic_labels = torch.full_like(full_sequence, fill_value=-100)
+                synthetic_labels[prompt_length:] = full_sequence[prompt_length:]
 
                 # Apply filtering on response length and max length
                 filtering_config = config.get("synthetic_data.filtering", {})
@@ -187,12 +143,12 @@ def generate_synthetic_dataset(
                         continue
 
                 # Create attention mask (all 1s for valid sequence)
-                attention_mask = torch.ones_like(full_sequence)
+                output_attention_mask = torch.ones_like(full_sequence)
 
                 # Store
                 synthetic_data["input_ids"].append(full_sequence.cpu().tolist())
-                synthetic_data["attention_mask"].append(attention_mask.cpu().tolist())
-                synthetic_data["labels"].append(labels.cpu().tolist())
+                synthetic_data["attention_mask"].append(output_attention_mask.cpu().tolist())
+                synthetic_data["labels"].append(synthetic_labels.cpu().tolist())
 
                 total_tokens_generated += len(generated_tokens)
                 successful_generations += 1
