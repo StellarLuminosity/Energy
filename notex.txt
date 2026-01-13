@@ -28,7 +28,7 @@ What still needs to be coded:
 [] SFT: update synthetic data generation to handle those datasets
 
 What still needs to be coded:
-[] Copy configs
+[X] Copy configs
 [X] test the KD pipeline
 [] Launch the KD pipeline for 1b, 7b, 13b
 [] Test the syntehtic generation script

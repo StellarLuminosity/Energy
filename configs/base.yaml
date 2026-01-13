@@ -9,11 +9,24 @@ experiment:
 
 # Dataset configuration
 data:
+  dataset_choice: "tulu"  # One of: tulu, codeforces, openr1_math
   dataset_name: "allenai/tulu-3-sft-mixture"
   dataset_path: "/scratch/klambert/dataset/tulu-3-sft-mixture-preprocessed"
   tokenizer_name: "allenai/OLMo-2-1124-7B-SFT"
   max_sequence_length: 1024
   pad_token_id: 100277  # OLMo-2 pad token
+  datasets:
+    tulu:
+      dataset_name: "allenai/tulu-3-sft-mixture"
+      dataset_path: "/scratch/klambert/dataset/tulu-3-sft-mixture-preprocessed"
+    codeforces:
+      dataset_name: "open-r1/codeforces"
+      dataset_subset: "verifiable-prompts"
+      dataset_path: "/scratch/klambert/dataset/open-r1-codeforces-preprocessed"
+    openr1_math:
+      dataset_name: "open-r1/OpenR1-Math-220k"
+      dataset_split: "default"
+      dataset_path: "/scratch/klambert/dataset/openr1-math-220k-preprocessed"
 
 # Training configuration
 training:

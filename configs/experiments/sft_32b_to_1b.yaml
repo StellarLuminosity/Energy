@@ -15,6 +15,10 @@ model:
   student: "allenai/OLMo-2-0425-1B-SFT"
   student_vocab_size: 100352
 
+# Dataset selection
+data:
+  dataset_choice: "tulu"
+
 # SFT-specific settings
 synthetic_data:
   # Teacher generation settings (FIXED for fair comparison)
