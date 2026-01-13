@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=preference_dataset
+#SBATCH --job-name=kd_distill
 #SBATCH --exclusive
 #SBATCH --output=/scratch/klambert/run_logs/%x_%j.out                
 #SBATCH --error=/scratch/klambert/run_logs/%x_%j.err                                            

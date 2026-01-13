@@ -27,3 +27,17 @@ What still needs to be coded:
 [] SFT: add preprocessing scripts for two additional datasets; 
 [] SFT: update synthetic data generation to handle those datasets
 
+What still needs to be coded:
+[] Copy configs
+[X] test the KD pipeline
+[] Launch the KD pipeline for 1b, 7b, 13b
+[] Test the syntehtic generation script
+[] SFT: add preprocessing scripts for two additional datasets; 
+[] SFT: update synthetic data generation to handle those datasets
+[] test the SFT scripts and dataset contents
+[] test the SFT main pipeline
+[] run the dpo preprocessing pipeline
+[] TEST ALL THE PIPELINES AND SET UP RUNS SO THAT THEY RUN IN PARALLEL
+
+Things to fix:
+[] training logging for the KD pipeline
