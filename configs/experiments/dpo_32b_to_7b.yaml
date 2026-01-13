@@ -7,13 +7,13 @@ pipeline: "dpo"
 # Experiment identification
 experiment:
   name: "dpo_olmo2_32b_to_7b"
-  description: "Preference distillation: 32B judge labels pairs, 1B learns via DPO"
+  description: "Preference distillation: 32B judge labels pairs, 7B learns via DPO"
 
 # Models
 model:
   teacher: "allenai/OLMo-2-0325-32B-SFT"   # used for generation of labels
   reference: "allenai/OLMo-2-0325-32B-SFT"
-  policy: "allenai/OLMo-2-0425-1B-SFT"
+  policy: "allenai/OLMo-2-1124-7B-SFT"
   judge: "allenai/OLMo-2-0325-32B-SFT"
   
   student_vocab_size: 100352
@@ -33,8 +33,8 @@ dpo:
 
 # Output
 output:
-  output_dir: "/scratch/klambert/model_log/energy_experiments/dpo_32b_to_1b"
+  output_dir: "/scratch/klambert/model_log/energy_experiments/dpo_32b_to_7b"
 
 # W&B override
 wandb:
-  run_name: "dpo_32b_to_1b_beta0.1_ultrafeedback"
+  run_name: "dpo_32b_to_7b_beta0.1_ultrafeedback"

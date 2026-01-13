@@ -1,0 +1,40 @@
+# Knowledge Distillation: OLMo2-32B → OLMo2-13B
+# Logit-based distillation with cached teacher distributions
+
+# Pipeline type
+pipeline: "kd"
+
+# Experiment identification
+experiment:
+  name: "kd_olmo2_32b_to_13b"
+  description: "Logit KD from 32B to 13B with top-100 cached teacher logprobs"
+
+# Models
+model:
+  teacher: "allenai/OLMo-2-0325-32B-SFT"
+  student: "allenai/OLMo-2-1124-13B-SFT"
+  student_vocab_size: 100352
+
+# Data (KD uses cached teacher logits)
+data:
+  dataset_teacher_logprobs: "/scratch/klambert/dataset/logprob_cache/teacher_logprobs"
+
+# KD-specific hyperparameters
+distillation:
+  # Loss weighting: total_loss = alpha * CE + (1-alpha) * KL
+  alpha: 0.5  # 0.5 = equal weight to CE and KL
+  
+  # Temperature for KL divergence
+  temperature: 1.0
+  
+  # Logit caching settings (already done, for reference)
+  top_k_logits: 100  # Top-100 cached teacher logits
+  logprob_cache_path: "/scratch/klambert/dataset/logprob_cache"
+
+# Output
+output:
+  output_dir: "/scratch/klambert/model_log/energy_experiments/kd_32b_to_13b"
+
+# W&B override
+wandb:
+  run_name: "kd_32b_to_13b_alpha0.5_temp1.0"
