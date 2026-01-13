@@ -398,16 +398,19 @@ class EnergyTracker:
             print(f"Warning: Stage '{self.current_stage}' still running. Ending it first.")
             self.end_stage()
 
-        n = self._stage_counts.get(stage_name, 0) + 1
-        self._stage_counts[stage_name] = n
-        stage_id = stage_name if n == 1 else f"{stage_name}__{n}"
+        # Include experiment name so stage labels stay unique across configs
+        stage_full_name = f"{stage_name}_{self.experiment_name}" if self.experiment_name else stage_name
+
+        n = self._stage_counts.get(stage_full_name, 0) + 1
+        self._stage_counts[stage_full_name] = n
+        stage_id = stage_full_name if n == 1 else f"{stage_full_name}__{n}"
 
         self.current_stage = stage_id
-        stage_metrics = StageMetrics(stage_id=stage_id, stage_name=stage_name)
+        stage_metrics = StageMetrics(stage_id=stage_id, stage_name=stage_full_name)
         self.stages[stage_id] = stage_metrics
 
         # Prepare per-stage folder under stages/
-        safe_stage_name = _safe_filename(stage_name)
+        safe_stage_name = _safe_filename(stage_full_name)
         safe_stage_id = _safe_filename(stage_id)
         stage_dir = self.stages_dir / safe_stage_id
         stage_dir.mkdir(parents=True, exist_ok=True)
@@ -424,7 +427,7 @@ class EnergyTracker:
             try:
                 cfg_dict = self.config.to_dict() if hasattr(self.config, "to_dict") else dict(self.config)
                 cfg_payload = {
-                    "stage_name": stage_name,
+                    "stage_name": stage_full_name,
                     "stage_id": stage_id,
                     "config": cfg_dict,
                 }
@@ -482,7 +485,7 @@ class EnergyTracker:
 
         stage_metrics.start_time = time.time()
 
-        print(f"[EnergyTracker] Started stage: {stage_name}")
+        print(f"[EnergyTracker] Started stage: {stage_id}")
 
     def end_stage(self, tokens_processed: Optional[int] = None) -> StageMetrics:
         """End current stage and collect metrics."""
