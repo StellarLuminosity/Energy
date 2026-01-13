@@ -12,6 +12,7 @@ from tqdm import tqdm
 from transformers import AutoModelForCausalLM, AutoTokenizer
 from pathlib import Path
 from typing import Optional
+from torch.nn.utils.rnn import pad_sequence
 
 from distill_bench.core.energy_logger import EnergyTracker
 from distill_bench.core.config_loader import Config, load_config
@@ -38,6 +39,7 @@ def generate_synthetic_dataset(
     top_p = gen_config.get("top_p", 0.9)
     max_new_tokens = gen_config.get("max_new_tokens", 512)
     decoding_strategy = gen_config.get("decoding_strategy", "sampling")
+    generation_batch_size = gen_config.get("batch_size", 1)
 
     max_seq_len = config.get("data.max_sequence_length", 1024)
     num_samples = config.get("synthetic_data.num_samples", 50000)
@@ -79,13 +81,92 @@ def generate_synthetic_dataset(
 
     total_tokens_generated = 0
     successful_generations = 0
+    max_gen_examples = getattr(config, "max_gen_examples", None)
+    filtering_config = config.get("synthetic_data.filtering", {})
+    pad_token_id = tokenizer.pad_token_id or tokenizer.eos_token_id
+
+    base_generation_kwargs = {
+        "pad_token_id": pad_token_id,
+        "do_sample": decoding_strategy == "sampling",
+    }
+    if decoding_strategy == "sampling":
+        base_generation_kwargs["temperature"] = temperature
+        base_generation_kwargs["top_p"] = top_p
+
+    batch_prompts = []
+
+    def flush_batch():
+        nonlocal batch_prompts, total_tokens_generated, successful_generations
+        if not batch_prompts:
+            return
+
+        prompt_lengths = [p["prompt_ids"].shape[0] for p in batch_prompts]
+        max_prompt_length = max(prompt_lengths)
+        max_new_tokens_for_batch = min(max_new_tokens, max_seq_len - max_prompt_length)
+        if max_new_tokens_for_batch <= 0:
+            batch_prompts = []
+            return
+
+        batch_input_ids = pad_sequence(
+            [p["prompt_ids"] for p in batch_prompts],
+            batch_first=True,
+            padding_value=pad_token_id,
+        ).to(device)
+        batch_attention_mask = pad_sequence(
+            [p["prompt_attention_mask"] for p in batch_prompts],
+            batch_first=True,
+            padding_value=0,
+        ).to(device)
+
+        batch_outputs = teacher_model.generate(
+            input_ids=batch_input_ids,
+            attention_mask=batch_attention_mask,
+            max_new_tokens=max_new_tokens_for_batch,
+            **base_generation_kwargs,
+        ).cpu()
+
+        for prompt_info, output, prompt_length in zip(batch_prompts, batch_outputs, prompt_lengths):
+            generated_tokens = output[prompt_length:]
+
+            synthetic_labels = torch.full_like(output, fill_value=-100)
+            synthetic_labels[prompt_length:] = output[prompt_length:]
+
+            if filtering_config.get("enabled", True):
+                min_length = filtering_config.get("min_length", 10)
+                max_length = filtering_config.get("max_length", max_seq_len)
+                response_length = len(generated_tokens)
+                total_length = len(output)
+                if response_length < min_length:
+                    print(f"Response length shorter than min length - skipping idx {prompt_info['idx']}")
+                    continue
+                if total_length > max_length:
+                    print(f"Total length (prompt + response) is greater than max length - skipping idx {prompt_info['idx']}")
+                    continue
+
+            output_attention_mask = torch.ones_like(output)
+
+            synthetic_data["input_ids"].append(output.tolist())
+            synthetic_data["attention_mask"].append(output_attention_mask.tolist())
+            synthetic_data["labels"].append(synthetic_labels.tolist())
+
+            total_tokens_generated += len(generated_tokens)
+            successful_generations += 1
+
+        batch_prompts = []
+        if device.type == "cuda" and successful_generations and successful_generations % 500 == 0:
+            torch.cuda.empty_cache()
 
     # Generate responses
-    with torch.no_grad():
+    with torch.inference_mode():
+        processed_examples = 0
         for idx, example in enumerate(tqdm(prompt_dataset, desc="Generating synthetic data")):
+            if max_gen_examples is not None and processed_examples >= max_gen_examples:
+                print(f"[EARLY STOP] Reached synthetic generation limit ({max_gen_examples})")
+                break
+            processed_examples += 1
             try:
-                input_ids = torch.tensor(example["input_ids"], device=device)
-                attention_mask = torch.tensor(example["attention_mask"], device=device)
+                input_ids = torch.tensor(example["input_ids"])
+                attention_mask = torch.tensor(example["attention_mask"])
                 existing_labels = torch.tensor(example["labels"])
 
                 response_tokens = (existing_labels != -100).nonzero(as_tuple=True)[0]
@@ -103,63 +184,22 @@ def generate_synthetic_dataset(
                 if prompt_length >= max_seq_len - 10:
                     continue
 
-                # Generate response
-                generation_kwargs = {
-                    "max_new_tokens": min(max_new_tokens, max_seq_len - prompt_length),
-                    "pad_token_id": tokenizer.pad_token_id or tokenizer.eos_token_id,
-                    "do_sample": decoding_strategy == "sampling",
-                }
-
-                if decoding_strategy == "sampling":
-                    generation_kwargs["temperature"] = temperature
-                    generation_kwargs["top_p"] = top_p
-
-                outputs = teacher_model.generate(
-                    input_ids=prompt_ids.unsqueeze(0),
-                    attention_mask=prompt_attention_mask.unsqueeze(0),
-                    **generation_kwargs,
+                batch_prompts.append(
+                    {
+                        "idx": idx,
+                        "prompt_ids": prompt_ids,
+                        "prompt_attention_mask": prompt_attention_mask,
+                    }
                 )
 
-                # Full generated sequence (prompt + response)
-                full_sequence = outputs[0]
-                generated_tokens = full_sequence[prompt_length:]
-
-                # Create labels: mask prompt (-100), keep response
-                synthetic_labels = torch.full_like(full_sequence, fill_value=-100)
-                synthetic_labels[prompt_length:] = full_sequence[prompt_length:]
-
-                # Apply filtering on response length and max length
-                filtering_config = config.get("synthetic_data.filtering", {})
-                if filtering_config.get("enabled", True):
-                    min_length = filtering_config.get("min_length", 10)
-                    max_length = filtering_config.get("max_length", max_seq_len)
-                    response_length = len(generated_tokens)
-                    total_length = len(full_sequence)
-                    if response_length < min_length:
-                        print(f"Response length shorter than min length - skipping idx {idx}")
-                        continue
-                    if total_length > max_length:
-                        print(f"Total length (prompt + response) is greater than max length - skipping idx {idx}")
-                        continue
-
-                # Create attention mask (all 1s for valid sequence)
-                output_attention_mask = torch.ones_like(full_sequence)
-
-                # Store
-                synthetic_data["input_ids"].append(full_sequence.cpu().tolist())
-                synthetic_data["attention_mask"].append(output_attention_mask.cpu().tolist())
-                synthetic_data["labels"].append(synthetic_labels.cpu().tolist())
-
-                total_tokens_generated += len(generated_tokens)
-                successful_generations += 1
-
-                # Periodic cleanup
-                if idx % 100 == 0:
-                    torch.cuda.empty_cache()
+                if len(batch_prompts) >= generation_batch_size:
+                    flush_batch()
 
             except Exception as e:
                 print(f"Warning: Failed to generate for example {idx}: {e}")
                 continue
+
+        flush_batch()
 
     # End energy tracking
     if energy_tracker:
@@ -202,6 +242,44 @@ def load_synthetic_dataset(config: Config) -> datasets.DatasetDict:
         print(f"Synthetic dataset not found at {synthetic_path}. Generate dataset before running.")
 
 
+def run_basic_checks(split_dataset: datasets.DatasetDict, tokenizer: AutoTokenizer, num_examples: int = 3) -> None:
+    """Lightweight sanity checks on the saved synthetic dataset."""
+    if not isinstance(split_dataset, datasets.DatasetDict):
+        print("Dataset is not split; skipping split checks.")
+        return
+
+    train_len = len(split_dataset["train"])
+    test_len = len(split_dataset["test"])
+    total_len = train_len + test_len
+    print(f"[CHECK] Columns: {split_dataset['train'].column_names}")
+    print(f"[CHECK] Split sizes -> train: {train_len}, test: {test_len}, total: {total_len}")
+
+    sample_ds = split_dataset["train"]
+    if len(sample_ds) == 0:
+        print("[CHECK] No samples available to decode.")
+        return
+
+    print(f"[CHECK] Showing up to {num_examples} decoded samples from train split:")
+    for i in range(min(num_examples, len(sample_ds))):
+        rec = sample_ds[i]
+        input_ids = rec["input_ids"]
+        attn = rec.get("attention_mask", None)
+
+        if isinstance(input_ids, torch.Tensor):
+            input_ids = input_ids.tolist()
+        if attn is not None and isinstance(attn, torch.Tensor):
+            attn = attn.tolist()
+
+        if attn is not None:
+            trimmed_ids = [tid for tid, mask in zip(input_ids, attn) if mask == 1]
+        else:
+            trimmed_ids = input_ids
+
+        decoded = tokenizer.decode(trimmed_ids, skip_special_tokens=True)
+        print(f"[CHECK] Sample {i} token ids (truncated 50): {trimmed_ids[:50]}")
+        print(f"[CHECK] Sample {i} text: {decoded}")
+
+
 if __name__ == "__main__":
     import argparse
 
@@ -214,5 +292,9 @@ if __name__ == "__main__":
     run_dir.mkdir(parents=True, exist_ok=True)
     tracker = EnergyTracker(run_dir=str(run_dir), experiment_name="synthetic_generation", config=cfg)
 
-    generate_synthetic_dataset(cfg, energy_tracker=tracker)
+    ds = generate_synthetic_dataset(cfg, energy_tracker=tracker)
     tracker.save_summary()
+    try:
+        run_basic_checks(ds, AutoTokenizer.from_pretrained(cfg.tokenizer_name))
+    except Exception as e:
+        print(f"[CHECK] Skipping dataset checks due to error: {e}")

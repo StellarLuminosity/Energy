@@ -28,6 +28,7 @@ synthetic_data:
   # Dataset for prompts
   prompt_dataset: "allenai/tulu-3-sft-mixture"
   num_samples: 50000  # Number of synthetic examples to generate
+  max_gen_examples: None
   
   # Filtering (quality control)
   filtering:
