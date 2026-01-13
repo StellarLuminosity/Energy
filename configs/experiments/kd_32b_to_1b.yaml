@@ -37,4 +37,4 @@ output:
 
 # W&B override
 wandb:
-  run_name: "kd_32b_to_1b_alpha0.5_temp2.0"
+  run_name: "kd_32b_to_1b_alpha0.5_temp1.0"
