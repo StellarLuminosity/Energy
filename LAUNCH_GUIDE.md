@@ -3,11 +3,15 @@
 ## Quick launcher
 - SLURM: `sbatch run_pipeline.sh <config.yaml> [--data-script <name_or_path>]`
 - Interactive: `python run_experiment.py --config <config.yaml> [--data-script <name_or_path>]`
-- `--data-script` runs the data script only (e.g., `synthetic_generation`, `preference_dataset`, `logit_caching`, `tulu_preprocess_dataset`, `prerun`).
+- `--data-script` runs the data script only (e.g., `synthetic_generation`, `preference_dataset`, `logit_caching`, `tulu_preprocess_dataset`, `codeforces_preprocess_dataset`, `openr1_math_preprocess_dataset`, `prerun`).
 - Prereqs: logits already cached at `/scratch/klambert/dataset/logprob_cache`; synthetic dataset path and preference dataset path are read from configs. Energy logs land in `logs/` by default.
 
 ## Run order
-1) Data generation: `sbatch run_pipeline.sh configs/experiments/sft_32b_to_1b.yaml --data-script synthetic_generation`, `sbatch run_pipeline.sh configs/experiments/dpo_32b_to_1b.yaml --data-script preference_dataset`, `sbatch run_pipeline.sh configs/experiments/kd_32b_to_1b.yaml --data-script logit_caching`
+1) Data generation / preprocessing:
+   - SFT synthetic data: `sbatch run_pipeline.sh configs/experiments/sft_32b_to_1b.yaml --data-script synthetic_generation`
+   - DPO preference data: `sbatch run_pipeline.sh configs/experiments/dpo_32b_to_1b.yaml --data-script preference_dataset`
+   - KD logits: `sbatch run_pipeline.sh configs/experiments/kd_32b_to_1b.yaml --data-script logit_caching`
+   - Dataset preprocessing: `sbatch run_pipeline.sh configs/experiments/sft_32b_to_1b.yaml --data-script tulu_preprocess_dataset` (or `codeforces_preprocess_dataset`, `openr1_math_preprocess_dataset` depending on `data.dataset_choice`)
 2) KD training (parallel): `sbatch run_pipeline.sh configs/experiments/kd_32b_to_1b.yaml`, `sbatch run_pipeline.sh configs/experiments/kd_32b_to_7b.yaml`, `sbatch run_pipeline.sh configs/experiments/kd_32b_to_13b.yaml`
 3) SFT training (after synthetic data is ready; parallel): `sbatch run_pipeline.sh configs/experiments/sft_32b_to_1b.yaml`, `sbatch run_pipeline.sh configs/experiments/sft_32b_to_7b.yaml`, `sbatch run_pipeline.sh configs/experiments/sft_32b_to_32b.yaml`
 4) DPO training (after preference dataset is ready; parallel): `sbatch run_pipeline.sh configs/experiments/dpo_32b_to_1b.yaml`, `sbatch run_pipeline.sh configs/experiments/dpo_32b_to_7b.yaml`, `sbatch run_pipeline.sh configs/experiments/dpo_32b_to_32b.yaml`

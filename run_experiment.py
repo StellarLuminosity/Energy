@@ -25,7 +25,11 @@ def main():
         "--data-script",
         type=str,
         default=None,
-        help="Optional data script to run instead of a training pipeline (e.g., logit_caching)",
+        help=(
+            "Optional data script to run instead of a training pipeline "
+            "(e.g., logit_caching, tulu_preprocess_dataset, codeforces_preprocess_dataset, "
+            "openr1_math_preprocess_dataset, synthetic_generation, preference_dataset, prerun)"
+        ),
     )
     args, extra = parser.parse_known_args()
 

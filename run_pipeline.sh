@@ -11,7 +11,6 @@
 #SBATCH --time=9:00:00
 
 # Unified experiment launcher for KD/SFT/DPO pipelines (single-GPU)
-# Exclusive L40: srun --exclusive -c 16 --gres=gpu:l40s:1 --partition=gpubase_l40s_b3 --mem=120GB --pty --time=7:00:00 --account=aip-craffel bash
 # 1 H100:        srun -c 16 --gres=gpu:h100:1 --partition=gpubase_h100_b5 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
 # 1 L40:         srun -c 1 --gres=gpu:l40s:1 --partition=gpubase_l40s_b2 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
 # CPU-only:      srun -c 16 --partition=gpubase_h100_b1 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
