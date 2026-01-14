@@ -1,0 +1,54 @@
+{
+  "hostname": "kn177",
+  "gpus": [
+    {
+      "index": 0,
+      "name": "NVIDIA H100 80GB HBM3",
+      "memory_total_mb": 81559.0,
+      "memory_free_mb": 81089.875,
+      "driver_version": "570.148.08",
+      "cuda_version": "12.8",
+      "compute_capability": "9.0",
+      "power_limit_watts": 700.0
+    }
+  ],
+  "cpu": {
+    "brand": "Intel(R) Xeon(R) Gold 6442Y",
+    "architecture": "x86_64",
+    "physical_cores": 48,
+    "logical_cores": 48,
+    "max_frequency_mhz": 4000.0,
+    "current_frequency_mhz": 1528.3518541666665
+  },
+  "memory": {
+    "total_gb": 2015.4003639221191,
+    "available_gb": 1944.818675994873,
+    "used_gb": 70.5816879272461,
+    "percent_used": 3.5
+  },
+  "software": {
+    "python_version": "3.10.13",
+    "pytorch_version": "2.6.0+cu124",
+    "cuda_version": "12.4",
+    "cudnn_version": "90100",
+    "transformers_version": "4.51.3",
+    "platform": "Linux",
+    "os_version": "6.8.0-54-generic"
+  },
+  "git_info": {
+    "commit_hash": "1003a3d8f6a6f119f91a9a06c7e009dfcf0d5e74",
+    "branch": "main",
+    "is_dirty": true,
+    "remote_url": "https://github.com/StellarLuminosity/Energy.git"
+  },
+  "slurm_info": {
+    "job_id": "1852959",
+    "job_name": "bash",
+    "node_name": "kn177",
+    "partition": "gpubase_h100_b5",
+    "num_nodes": "1",
+    "cpus_per_task": "16",
+    "gpus": "1",
+    "mem_per_node": "122880"
+  }
+}

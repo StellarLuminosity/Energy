@@ -98,7 +98,6 @@ class Config:
         self.synthetic_max_new_tokens = gen.get("max_new_tokens", None)
         self.synthetic_decoding_strategy = gen.get("decoding_strategy", None)
         self.synthetic_prompt_field = gen.get("prompt_field", None)
-        self.synthetic_prompt_dataset = synth.get("prompt_dataset", None)
         self.synthetic_num_samples = synth.get("num_samples", None)
         self.synthetic_filter_enabled = filt.get("enabled", None)
         self.synthetic_filter_min_length = filt.get("min_length", None)

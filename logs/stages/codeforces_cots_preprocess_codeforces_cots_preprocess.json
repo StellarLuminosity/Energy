@@ -1,0 +1,23 @@
+{
+  "stage_id": "codeforces_cots_preprocess_codeforces_cots_preprocess",
+  "stage_name": "codeforces_cots_preprocess_codeforces_cots_preprocess",
+  "start_time": 1768432039.454269,
+  "end_time": 1768432039.4552388,
+  "duration_seconds": 0.0009698867797851562,
+  "tokens_processed": 0,
+  "gpu_energy_joules": 0.07903704357147216,
+  "gpu_avg_power_watts": 81.491,
+  "gpu_peak_power_watts": 81.491,
+  "gpu_power_samples": [
+    81.491
+  ],
+  "codecarbon_energy_kwh": 1.1159945831635317e-05,
+  "codecarbon_emissions_kg": 1.8976706690487644e-06,
+  "cpu_energy_joules": 0.0,
+  "total_energy_joules": 0.07903704357147216,
+  "total_energy_kwh": 2.1954734325408934e-08,
+  "joules_per_token": 0.0,
+  "kwh_total": 2.1954734325408934e-08,
+  "tokens_per_second": 0.0,
+  "nvml_poll_interval_ms": 500
+}

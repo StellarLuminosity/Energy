@@ -1,170 +1,254 @@
 import os
-import random
+import re
 import shutil
 from pathlib import Path
+from typing import Any, Dict, List, Optional
 
 import datasets
-import torch
 from transformers import AutoTokenizer
 
 from distill_bench.core.config_loader import load_config
 from distill_bench.core.energy_logger import EnergyTracker
 
-
-def create_response_labels(input_ids: torch.Tensor, attention_mask: torch.Tensor, response_start: int) -> torch.Tensor:
-    """
-    Populate labels so only the assistant span is trained on.
-    Everything before the assistant marker and any padding stays at -100.
-    """
-    labels = input_ids.clone()
-    labels.fill_(-100)
-
-    if response_start >= 0:
-        last_valid = attention_mask.nonzero(as_tuple=True)[0].max().item()
-        end_pos = last_valid + 1
-        labels[response_start:end_pos] = input_ids[response_start:end_pos]
-
-    labels = labels.masked_fill(attention_mask == 0, -100)
-    return labels
+# -----------------------------------------------------------------------------
+# Tokenizer caching per-process (works well with datasets.map(num_proc=...))
+# -----------------------------------------------------------------------------
+_TOKENIZER = None
 
 
-def build_messages(sample):
-    """Construct a minimal chat-style message list from a Codeforces prompt."""
-    prompt_text = sample.get("prompt", "")
-    return [{"role": "user", "content": prompt_text}]
+def get_tokenizer(tokenizer_name: str):
+    global _TOKENIZER
+    if _TOKENIZER is None:
+        _TOKENIZER = AutoTokenizer.from_pretrained(tokenizer_name)
+    return _TOKENIZER
 
 
-def inspect_dataset(split_dataset, tokenizer, num_examples: int = 3):
-    """Lightweight inspection of the processed dataset."""
-    if not isinstance(split_dataset, datasets.DatasetDict):
-        print("Dataset is not split; skipping inspection.")
-        return
-
-    train_len = len(split_dataset["train"])
-    test_len = len(split_dataset["test"])
-    print(f"\n=== DATASET INSPECTION ===")
-    print(f"Columns: {split_dataset['train'].column_names}")
-    print(f"Train size: {train_len}, Test size: {test_len}")
-
-    for split_name in ["train", "test"]:
-        ds = split_dataset[split_name]
-        if len(ds) == 0:
-            continue
-        print(f"\nSample decoded examples from '{split_name}':")
-        for i in range(min(num_examples, len(ds))):
-            rec = ds[i]
-            input_ids = rec["input_ids"]
-            attn = rec.get("attention_mask", None)
-            if isinstance(input_ids, torch.Tensor):
-                input_ids = input_ids.tolist()
-            if attn is not None and isinstance(attn, torch.Tensor):
-                attn = attn.tolist()
-            trimmed_ids = [tid for tid, mask in zip(input_ids, attn) if mask == 1] if attn else input_ids
-            decoded = tokenizer.decode(trimmed_ids, skip_special_tokens=True)
-            print(f"Example {i} token ids (truncated 30): {trimmed_ids[:30]}")
-            print(f"Example {i} text: {decoded[:500]}")
+# -----------------------------------------------------------------------------
+# Assistant-content postprocessing (optional)
+# -----------------------------------------------------------------------------
+_THINK_RE = re.compile(r"<think>.*?</think>\s*", flags=re.DOTALL)
+_CODEBLOCK_RE = re.compile(r"```(?:[a-zA-Z0-9_+-]+)?\n(.*?)```", flags=re.DOTALL)
 
 
-def main(config, energy_tracker: EnergyTracker = None, stage_name: str = "codeforces_preprocess_dataset"):
+def strip_think(text: str) -> str:
+    return re.sub(_THINK_RE, "", text).strip()
+
+
+def keep_last_code_block(text: str) -> str:
+    matches = list(re.finditer(_CODEBLOCK_RE, text))
+    if not matches:
+        return text.strip()
+    last = matches[-1].group(0)  # include the ```...``` fences
+    return last.strip()
+
+
+def maybe_transform_assistant(
+    assistant_text: str,
+    *,
+    strip_think_blocks: bool,
+    code_only: bool,
+) -> str:
+    out = assistant_text
+    if strip_think_blocks:
+        out = strip_think(out)
+    if code_only:
+        out = keep_last_code_block(out)
+    return out
+
+
+# -----------------------------------------------------------------------------
+# Core labeling logic (Tulu-style: labels only on assistant span)
+# We compute response_start by tokenizing the PROMPT (all msgs except last)
+# with add_generation_prompt=True, then label from there in the full sequence.
+# -----------------------------------------------------------------------------
+def build_prompt_and_full_text(
+    messages: List[Dict[str, Any]],
+    tokenizer,
+) -> Dict[str, str]:
+    # Full conversation (includes assistant content)
+    full_text = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=False)
+
+    # Prompt only (everything before the final assistant message),
+    # with generation prompt turned on so it includes the assistant marker.
+    prefix_messages = messages[:-1]
+    prompt_text = tokenizer.apply_chat_template(prefix_messages, tokenize=False, add_generation_prompt=True)
+
+    return {"prompt_text": prompt_text, "full_text": full_text}
+
+
+def preprocess_batch(
+    batch: Dict[str, List[Any]],
+    *,
+    tokenizer_name: str,
+    max_length: int,
+    strip_think_blocks: bool,
+    code_only: bool,
+) -> Dict[str, List[Any]]:
+    tokenizer = get_tokenizer(tokenizer_name)
+
+    # 1) Normalize to a messages list
+    raw_messages_list = batch.get("messages", None)
+    prompts = batch.get("prompt", None)
+    generations = batch.get("generation", None)
+
+    normalized_messages: List[List[Dict[str, Any]]] = []
+    for i in range(len(batch["id"])):
+        msgs = None
+        if raw_messages_list is not None and raw_messages_list[i] is not None:
+            msgs = raw_messages_list[i]
+
+        # Fallback if messages missing
+        if not msgs:
+            user_text = prompts[i] if prompts is not None else ""
+            asst_text = generations[i] if generations is not None else ""
+            msgs = [{"role": "user", "content": user_text}, {"role": "assistant", "content": asst_text}]
+
+        # Ensure last message is assistant; if not, append generation if available
+        if msgs[-1].get("role") != "assistant":
+            asst_text = generations[i] if generations is not None else ""
+            msgs = list(msgs) + [{"role": "assistant", "content": asst_text}]
+
+        # Optionally transform assistant content (strip <think> / keep code only)
+        msgs = [dict(m) for m in msgs]
+        last = dict(msgs[-1])
+        last["content"] = maybe_transform_assistant(
+            last.get("content", ""),
+            strip_think_blocks=strip_think_blocks,
+            code_only=code_only,
+        )
+        msgs[-1] = last
+
+        normalized_messages.append(msgs)
+
+    # 2) Build prompt_text (prefix + assistant marker) and full_text
+    prompt_texts: List[str] = []
+    full_texts: List[str] = []
+    for msgs in normalized_messages:
+        texts = build_prompt_and_full_text(msgs, tokenizer)
+        prompt_texts.append(texts["prompt_text"])
+        full_texts.append(texts["full_text"])
+
+    # 3) Tokenize
+    full_tok = tokenizer(
+        full_texts,
+        truncation=True,
+        padding="max_length",
+        max_length=max_length,
+        add_special_tokens=True,
+    )
+    prompt_tok = tokenizer(
+        prompt_texts,
+        truncation=True,
+        padding=False,
+        max_length=max_length,
+        add_special_tokens=True,
+    )
+
+    input_ids_batch = full_tok["input_ids"]
+    attn_batch = full_tok["attention_mask"]
+    response_starts = [len(x) for x in prompt_tok["input_ids"]]
+
+    # 4) Create labels: only assistant span (response_start .. last_valid)
+    labels_batch: List[List[int]] = []
+    for input_ids, attn, rs in zip(input_ids_batch, attn_batch, response_starts):
+        # last valid token index is sum(attn)-1 when padding is at the end
+        valid = sum(attn)
+        end = valid  # slice end is exclusive
+        labels = [-100] * len(input_ids)
+        if 0 <= rs < end:
+            labels[rs:end] = input_ids[rs:end]
+        # padding already -100
+        labels_batch.append(labels)
+
+    return {
+        "input_ids": input_ids_batch,
+        "attention_mask": attn_batch,
+        "labels": labels_batch,
+        "response_start": response_starts,  # for debugging/filtering; we'll drop before save
+    }
+
+
+def keep_nonempty_labels(example: Dict[str, Any]) -> bool:
+    labels = example["labels"]
+    return any(l != -100 for l in labels)
+
+
+def main(config, energy_tracker: Optional[EnergyTracker] = None, stage_name: str = "codeforces_cots_preprocess"):
     started_here = False
     if energy_tracker and energy_tracker.current_stage is None:
         energy_tracker.start_stage(stage_name)
         started_here = True
 
-    tokenizer = AutoTokenizer.from_pretrained(config.tokenizer_name)
+    dataset_name = config.dataset_name  # should be "open-r1/codeforces-cots"
+    dataset_subset = getattr(config, "dataset_subset", None) or "solutions"
+    split = getattr(config, "dataset_split", None) or "train"
 
-    dataset_name = config.dataset_name
-    requested_subset = getattr(config, "dataset_subset", None)
-    if requested_subset and requested_subset != "verifiable-prompts":
-        raise ValueError(f"Codeforces preprocessing expects subset 'verifiable-prompts', got '{requested_subset}'")
-    dataset_subset = requested_subset or "verifiable-prompts"
-    dataset_split = getattr(config, "dataset_split", None)
+    max_length = int(getattr(config, "max_sequence_length", 1024))
+    seed = int(getattr(config, "seed", 42))
+    max_examples = int(getattr(config, "max_examples", 0))  # 0 => use all
+    test_size = float(getattr(config, "test_size", 0.05))
+    num_proc = int(getattr(config, "num_proc", 8))
+
+    strip_think_blocks = bool(getattr(config, "strip_think_blocks", False))
+    code_only = bool(getattr(config, "code_only", False))
 
     print("\n=== LOADING DATASET ===")
-    print(f"Dataset: {dataset_name} | Subset: {dataset_subset} | Split: {dataset_split or 'train'}")
+    print(f"Dataset: {dataset_name} | Subset: {dataset_subset} | Split: {split}")
+    ds = datasets.load_dataset(dataset_name, dataset_subset, split=split)
 
-    if dataset_split:
-        raw_dataset = datasets.load_dataset(dataset_name, dataset_subset, split=dataset_split)
-    else:
-        raw_dataset = datasets.load_dataset(dataset_name, dataset_subset)
+    print(f"Original size: {len(ds)}")
+    ds = ds.shuffle(seed=seed)
+    if max_examples and max_examples > 0:
+        ds = ds.select(range(min(max_examples, len(ds))))
+        print(f"After subsampling: {len(ds)}")
 
-    if isinstance(raw_dataset, datasets.DatasetDict):
-        if dataset_split and dataset_split in raw_dataset:
-            dataset = raw_dataset[dataset_split]
-        elif "train" in raw_dataset:
-            dataset = raw_dataset["train"]
-        else:
-            first_split = list(raw_dataset.keys())[0]
-            dataset = raw_dataset[first_split]
-            print(f"Split '{dataset_split}' not found; defaulting to '{first_split}'.")
-    else:
-        dataset = raw_dataset
+    # create a train/test split (dataset only ships with train in these subsets)
+    split_ds = ds.train_test_split(test_size=test_size, seed=seed)
+    print(f"Split: train={len(split_ds['train'])}, test={len(split_ds['test'])}")
 
-    print(f"Original dataset size: {len(dataset)}")
-    dataset = dataset.shuffle(seed=config.seed)
-    sample_size = min(8000, len(dataset))
-    dataset = dataset.select(range(sample_size))
-    print(f"After subsampling: {len(dataset)} examples")
+    # Preprocess (batched for speed)
+    print("\n=== TOKENIZING + LABELING ===")
+    tokenized = split_ds.map(
+        preprocess_batch,
+        batched=True,
+        num_proc=num_proc,
+        fn_kwargs={
+            "tokenizer_name": config.tokenizer_name,
+            "max_length": max_length,
+            "strip_think_blocks": strip_think_blocks,
+            "code_only": code_only,
+        },
+        desc="Preprocessing",
+    )
 
-    def format_chat_data(sample):
-        messages = build_messages(sample)
-        sample["messages"] = messages
-        sample["chat_text"] = tokenizer.apply_chat_template(messages, tokenize=False, add_generation_prompt=True)
-        return sample
+    # Filter examples where assistant span got truncated away (all -100)
+    print("\n=== FILTERING TRUNCATED / EMPTY ASSISTANT SPANS ===")
+    before = (len(tokenized["train"]), len(tokenized["test"]))
+    tokenized = tokenized.filter(keep_nonempty_labels, num_proc=num_proc, desc="Filtering")
+    after = (len(tokenized["train"]), len(tokenized["test"]))
+    print(f"Kept train={after[0]}/{before[0]}, test={after[1]}/{before[1]}")
 
-    dataset = dataset.map(format_chat_data, desc="Formatting chat", num_proc=8)
+    if after[0] == 0:
+        raise ValueError("No train examples left after filtering. Try increasing max_sequence_length.")
 
-    def tokenize_and_label(sample):
-        prompt_ids = tokenizer.apply_chat_template(sample["messages"], tokenize=True, add_generation_prompt=False)
-        tokenized = tokenizer(
-            sample["chat_text"],
-            truncation=True,
-            padding="max_length",
-            max_length=config.max_sequence_length,
-            return_tensors="pt",
-        )
-        input_ids = tokenized["input_ids"].squeeze(0)
-        attention_mask = tokenized["attention_mask"].squeeze(0)
-        response_start = len(prompt_ids)
-        labels = create_response_labels(input_ids, attention_mask, response_start)
+    # Keep only Tulu-style columns
+    keep_cols = {"input_ids", "attention_mask", "labels", "id"}
+    drop_cols = [c for c in tokenized["train"].column_names if c not in keep_cols]
+    cleaned = tokenized.remove_columns(drop_cols)
 
-        sample["input_ids"] = input_ids
-        sample["attention_mask"] = attention_mask
-        sample["labels"] = labels
-        sample["response_start"] = response_start
-        return sample
+    # Torch formatting at the end
+    cleaned.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
 
-    dataset = dataset.map(tokenize_and_label, desc="Tokenizing", num_proc=8)
-
-    def has_response_start(sample):
-        labels = sample["labels"]
-        if isinstance(labels, torch.Tensor):
-            labels = labels.tolist()
-        return sample["response_start"] >= 0 and any(l != -100 for l in labels)
-
-    before_filter = len(dataset)
-    dataset = dataset.filter(has_response_start, desc="Filtering missing assistant marker", num_proc=8)
-    after_filter = len(dataset)
-    print(f"Kept {after_filter}/{before_filter} examples after assistant-marker filtering")
-    if after_filter == 0:
-        raise ValueError("No examples contain the assistant marker; check chat template and dataset format.")
-
-    split_dataset = dataset.train_test_split(test_size=0.05, seed=config.seed)
-
-    split_dataset.set_format(type="torch", columns=["input_ids", "attention_mask", "labels"])
+    # Save
     save_path = config.dataset_path
-    print(f"\n=== SAVING DATASET TO {save_path} ===")
+    print(f"\n=== SAVING TO {save_path} ===")
     if os.path.exists(save_path):
         shutil.rmtree(save_path)
-    cleaned = split_dataset.remove_columns(
-        [col for col in split_dataset["train"].column_names if col not in {"input_ids", "attention_mask", "labels", "id", "response_start"}]
-    )
     cleaned.save_to_disk(save_path)
     print(f"Saved train={len(cleaned['train'])}, test={len(cleaned['test'])}")
 
-    inspect_dataset(cleaned, tokenizer)
-
     if energy_tracker and started_here:
+        # If you want true token counts, compute sum(attention_mask) over dataset (costly).
         total_examples = len(cleaned["train"]) + len(cleaned["test"])
         energy_tracker.add_tokens(total_examples)
         energy_tracker.end_stage(tokens_processed=total_examples)
@@ -173,14 +257,14 @@ def main(config, energy_tracker: EnergyTracker = None, stage_name: str = "codefo
 if __name__ == "__main__":
     import argparse
 
-    parser = argparse.ArgumentParser(description="Preprocess Codeforces dataset")
+    parser = argparse.ArgumentParser(description="Preprocess open-r1/codeforces-cots for SFT")
     parser.add_argument("--config", type=str, required=True, help="Path to experiment config YAML")
     args = parser.parse_args()
 
     cfg = load_config(args.config)
     run_dir = Path(getattr(cfg, "run_dir", None) or cfg.get("output.run_dir", None) or getattr(cfg, "output_dir", "logs"))
     run_dir.mkdir(parents=True, exist_ok=True)
-    tracker = EnergyTracker(run_dir=str(run_dir), experiment_name="codeforces_preprocess_dataset", config=cfg)
 
-    main(cfg, energy_tracker=tracker, stage_name="codeforces_preprocess_dataset")
+    tracker = EnergyTracker(run_dir=str(run_dir), experiment_name="codeforces_cots_preprocess", config=cfg)
+    main(cfg, energy_tracker=tracker, stage_name="codeforces_cots_preprocess")
     tracker.save_summary()
