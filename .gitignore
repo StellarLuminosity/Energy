@@ -15,3 +15,5 @@ tmp/
 prerun_validation/
 rebuild_teacher_logprobs.py
 wandb/
+run_pipeline.sh
+configs/*
