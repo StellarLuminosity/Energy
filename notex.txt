@@ -41,3 +41,6 @@ What still needs to be coded:
 
 Things to fix:
 [] training logging for the KD pipeline
+
+What still need to be done:
+[] unadd configs folder from the .gitignore
