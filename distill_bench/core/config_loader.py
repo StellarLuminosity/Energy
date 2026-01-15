@@ -65,6 +65,14 @@ class Config:
         self.pad_token_id = data.get("pad_token_id", -100)
         self.dataset_teacher_logprobs = data.get("dataset_teacher_logprobs", "")
 
+        # Data preprocessing defaults
+        preprocessing = self._config.get("preprocessing", {})
+        self.num_samples = self._config.get("num_samples", preprocessing.get("num_samples", 0))
+        self.test_size = self._config.get("test_size", preprocessing.get("test_size", 0.05))
+        self.num_proc = self._config.get("num_proc", preprocessing.get("num_proc", 8))
+        self.strip_think_blocks = self._config.get("strip_think_blocks", preprocessing.get("strip_think_blocks", False))
+        self.code_only = self._config.get("code_only", preprocessing.get("code_only", False))
+
         # Models
         model = self._config.get("model", {})
         self.teacher_model_name = model.get("teacher", "")
@@ -99,6 +107,8 @@ class Config:
         self.synthetic_decoding_strategy = gen.get("decoding_strategy", None)
         self.synthetic_prompt_field = gen.get("prompt_field", None)
         self.synthetic_num_samples = synth.get("num_samples", None)
+        self.synthetic_max_gen_examples = synth.get("max_gen_examples", None)
+        self.max_gen_examples = self.synthetic_max_gen_examples
         self.synthetic_filter_enabled = filt.get("enabled", None)
         self.synthetic_filter_min_length = filt.get("min_length", None)
         self.synthetic_filter_max_length = filt.get("max_length", None)

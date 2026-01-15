@@ -42,7 +42,6 @@ def generate_synthetic_dataset(
     generation_batch_size = gen_config.get("batch_size", 1)
 
     max_seq_len = config.get("data.max_sequence_length", 1024)
-    num_samples = config.get("synthetic_data.num_samples", 50000)
     synthetic_path = config.get("synthetic_data.synthetic_dataset_path")
     dataset_path = config.dataset_path or config.get("data.dataset_path")
 
@@ -67,10 +66,9 @@ def generate_synthetic_dataset(
     if isinstance(prompt_dataset, datasets.DatasetDict):
         prompt_dataset = prompt_dataset["train"]
 
-    if len(prompt_dataset) > num_samples:
-        prompt_dataset = prompt_dataset.shuffle(seed=config.seed).select(range(num_samples))
+    max_gen_examples = getattr(config, "max_gen_examples", None)
 
-    print(f"Generating {len(prompt_dataset)} synthetic examples...")
+    print(f"Generating {len(max_gen_examples)} synthetic examples...")
 
     # Storage for synthetic data
     synthetic_data = {
@@ -81,7 +79,6 @@ def generate_synthetic_dataset(
 
     total_tokens_generated = 0
     successful_generations = 0
-    max_gen_examples = getattr(config, "max_gen_examples", None)
     filtering_config = config.get("synthetic_data.filtering", {})
     pad_token_id = tokenizer.pad_token_id or tokenizer.eos_token_id
 

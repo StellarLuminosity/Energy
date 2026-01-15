@@ -185,11 +185,11 @@ def main(config, energy_tracker: Optional[EnergyTracker] = None, stage_name: str
 
     max_length = int(getattr(config, "max_sequence_length", 1024))
     seed = int(getattr(config, "seed", 42))
-    max_examples = int(getattr(config, "max_examples", 0))  # 0 => use all
-    test_size = float(getattr(config, "test_size", 0.05))
-    num_proc = int(getattr(config, "num_proc", 8))
+    num_samples = int(getattr(config, "num_samples", 0) or 0)  # 0 => use all
+    test_size = float(getattr(config, "test_size", 0.05) or 0.05)
+    num_proc = int(getattr(config, "num_proc", 8) or 8)
 
-    strip_think_blocks = bool(getattr(config, "strip_think_blocks", False))
+    strip_think_blocks = bool(getattr(config, "strip_think_blocks", True))
     code_only = bool(getattr(config, "code_only", False))
 
     print("\n=== LOADING DATASET ===")
@@ -198,8 +198,8 @@ def main(config, energy_tracker: Optional[EnergyTracker] = None, stage_name: str
 
     print(f"Original size: {len(ds)}")
     ds = ds.shuffle(seed=seed)
-    if max_examples and max_examples > 0:
-        ds = ds.select(range(min(max_examples, len(ds))))
+    if num_samples and num_samples > 0:
+        ds = ds.select(range(min(num_samples, len(ds))))
         print(f"After subsampling: {len(ds)}")
 
     # create a train/test split (dataset only ships with train in these subsets)
