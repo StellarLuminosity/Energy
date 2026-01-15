@@ -13,7 +13,7 @@ data:
   dataset_name: "allenai/tulu-3-sft-mixture"
   dataset_path: "/scratch/klambert/dataset/tulu-3-sft-mixture-preprocessed"
   tokenizer_name: "allenai/OLMo-2-1124-7B-SFT"
-  max_sequence_length: 1024
+  max_sequence_length: 2048
   pad_token_id: 100277  # OLMo-2 pad token
   datasets:
     tulu:
@@ -21,12 +21,18 @@ data:
       dataset_path: "/scratch/klambert/dataset/tulu-3-sft-mixture-preprocessed"
     codeforces:
       dataset_name: "open-r1/codeforces-cots"
-      dataset_subset: "verifiable-prompts"
+      dataset_subset: "solutions"
       dataset_path: "/scratch/klambert/dataset/open-r1-codeforces-preprocessed"
     math:
       dataset_name: "open-r1/OpenR1-Math-220k"
       dataset_split: "default"
       dataset_path: "/scratch/klambert/dataset/openr1-math-220k-preprocessed"
+
+# Synthetic data generation defaults
+synthetic_data:
+  # Dataset for prompts
+  num_samples: 20000  # Number of dataset examples to process
+  max_gen_examples: 8000 # Number of synthetic examples go negerate
 
 # Training configuration
 training:

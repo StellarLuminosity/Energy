@@ -19,6 +19,13 @@ model:
 data:
   dataset_choice: "codeforces" # 'math', 'codeforces'
 
+# Preprocessing settings
+num_samples: 0         # 0 => use all examples
+test_size: 0.05
+num_proc: 8
+strip_think_blocks: true
+code_only: false
+
 # SFT-specific settings
 synthetic_data:
   # Teacher generation settings (FIXED for fair comparison)
@@ -28,12 +35,6 @@ synthetic_data:
     max_new_tokens: 512
     decoding_strategy: "sampling"  # sampling vs greedy vs beam
     prompt_field: "messages"
-  
-  # Dataset for prompts
-  prompt_dataset: "allenai/tulu-3-sft-mixture"
-  num_samples: 50000  # Number of synthetic examples to generate
-  max_gen_examples: None
-  
   # Filtering (quality control)
   filtering:
     enabled: true
