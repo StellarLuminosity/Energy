@@ -18,13 +18,13 @@
     "physical_cores": 48,
     "logical_cores": 48,
     "max_frequency_mhz": 4000.0,
-    "current_frequency_mhz": 1528.3518541666665
+    "current_frequency_mhz": 1655.7530416666666
   },
   "memory": {
     "total_gb": 2015.4003639221191,
-    "available_gb": 1944.818675994873,
-    "used_gb": 70.5816879272461,
-    "percent_used": 3.5
+    "available_gb": 1954.9472541809082,
+    "used_gb": 60.45310974121094,
+    "percent_used": 3.0
   },
   "software": {
     "python_version": "3.10.13",
@@ -36,7 +36,7 @@
     "os_version": "6.8.0-54-generic"
   },
   "git_info": {
-    "commit_hash": "1003a3d8f6a6f119f91a9a06c7e009dfcf0d5e74",
+    "commit_hash": "427b75dccb10caf7006e96d0bef6276f9224859a",
     "branch": "main",
     "is_dirty": true,
     "remote_url": "https://github.com/StellarLuminosity/Energy.git"
