@@ -53,6 +53,16 @@ def _describe_dataset(ds: datasets.Dataset | datasets.DatasetDict) -> None:
         print(f"Dataset size: {len(ds)}, columns={ds.column_names}")
 
 
+def _count_non_one_attention(split: datasets.Dataset) -> int:
+    """Count rows where attention_mask contains any value other than 1."""
+    count = 0
+    for attn in split["attention_mask"]:
+        seq = _to_int_list(attn)
+        if any(val != 1 for val in seq):
+            count += 1
+    return count
+
+
 def _print_samples(
     split: datasets.Dataset,
     split_name: str,
@@ -132,8 +142,13 @@ def main() -> None:
     if isinstance(ds_python, datasets.DatasetDict):
         for split_name in ["train", "test"]:
             if split_name in ds_python:
-                _print_samples(ds_python[split_name], split_name, tokenizer, args.num_examples)
+                split = ds_python[split_name]
+                non_one = _count_non_one_attention(split)
+                print(f"{split_name}: {non_one} examples have attention_mask values other than 1 (of {len(split)})")
+                _print_samples(split, split_name, tokenizer, args.num_examples)
     else:
+        non_one = _count_non_one_attention(ds_python)
+        print(f"dataset: {non_one} examples have attention_mask values other than 1 (of {len(ds_python)})")
         _print_samples(ds_python, "dataset", tokenizer, args.num_examples)
 
 
