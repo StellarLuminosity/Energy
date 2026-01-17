@@ -65,6 +65,9 @@ def main(args):
         config.policy_model_name,
         torch_dtype=torch.bfloat16,
     ).to(device)
+    policy_model.gradient_checkpointing_enable()
+    if hasattr(student_model.config, "use_cache"):
+        student_model.config.use_cache = False
 
     # Teacher acts as reference policy
     main_print(f"Loading reference model (teacher): {config.reference_model_name}")
@@ -72,8 +75,12 @@ def main(args):
         config.reference_model_name,
         torch_dtype=torch.bfloat16,
     ).to(device)
+    
     reference_model.eval()
     reference_model.requires_grad_(False)
+    reference_model.gradient_checkpointing_enable()
+    if hasattr(reference_model.config, "use_cache"):
+        reference_model.config.use_cache = False
 
     optimizer = torch.optim.AdamW(policy_model.parameters(), lr=config.learning_rate)
     num_training_steps = len(train_loader) * config.num_epochs if config.num_training_steps == 0 else config.num_training_steps

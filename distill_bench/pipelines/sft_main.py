@@ -243,6 +243,10 @@ def main(args):
         config.student_model_name,
         torch_dtype=torch.bfloat16,
     ).to(device)
+    
+    student_model.gradient_checkpointing_enable()
+    if hasattr(student_model.config, "use_cache"):
+        student_model.config.use_cache = False
 
     # Optimizer and scheduler
     optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)

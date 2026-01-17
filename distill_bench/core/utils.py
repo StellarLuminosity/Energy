@@ -179,7 +179,7 @@ def prepare_dataset(train_ds, eval_ds, config):
         eval_ds: Evaluation dataset
         config: Config object with batch_size, eval_batch_size, seed
     """
-    custom_collator = CustomPadCollator(1024, pad_token_id=100277)  # pad_token_id for OLmo2
+    custom_collator = CustomPadCollator(config.data.max_sequence_length, pad_token_id=100277)  # pad_token_id for OLmo2
 
     train_dataloader = DataLoader(
         train_ds, batch_size=config.batch_size, shuffle=True, collate_fn=custom_collator, num_workers=0, drop_last=True

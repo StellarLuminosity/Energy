@@ -156,6 +156,10 @@ def main(args):
         torch_dtype=torch.bfloat16,
     ).to(device)
 
+    student_model.gradient_checkpointing_enable()
+    if hasattr(student_model.config, "use_cache"):
+        student_model.config.use_cache = False
+
     # ----------------------------------
     # Optimizer and Scheduler
     # ----------------------------------

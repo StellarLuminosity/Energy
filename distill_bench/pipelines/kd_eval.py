@@ -30,6 +30,13 @@ def load_model(model_path=None, model_name=None, student_model_name=None, device
             student_model_name,
             torch_dtype=torch.bfloat16,
         )
+        model.gradient_checkpointing_enable()
+        if hasattr(model.config, "use_cache"):
+            model.config.use_cache = False
+        
+        student_model.gradient_checkpointing_enable()
+        if hasattr(student_model.config, "use_cache"):
+            student_model.config.use_cache = False
 
         if os.path.isdir(model_path):
             # Treat directory as HF-format checkpoint
@@ -38,6 +45,9 @@ def load_model(model_path=None, model_name=None, student_model_name=None, device
                 model_path,
                 torch_dtype=torch.bfloat16,
             )
+            model.gradient_checkpointing_enable()
+            if hasattr(model.config, "use_cache"):
+                model.config.use_cache = False
         elif os.path.isfile(model_path):
             print(f"Detected single file checkpoint format")
             print(f"Loading from: {model_path}")
