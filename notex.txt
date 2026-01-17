@@ -19,7 +19,7 @@ KD:
 SFT:
 - Synthetic dataset path: /scratch/klambert/dataset/synthetic_32b_to_1b
 - Env metadata, checkpoints, and model: /scratch/klambert/model_log/energy_experiments/sft_32b_to_1b
-
+- Change dataset choice in the sft and base configs before launching scirpts!
 DPO:
 - Env metadata, checkpoints, and model: /scratch/klambert/model_log/energy_experiments/dpo_32b_to_1b
 
@@ -27,9 +27,9 @@ What still needs to be coded:
 [X] Copy configs
 [X] test the KD pipeline
 [X] Launch the KD pipeline for 
-    [] 1b 
-    [] 7b
-    [] 13b
+    [X] 1b 
+    [X] 7b
+    [X] 13b
 [] Test the synthetic generation script
 [X] SFT: add preprocessing scripts for two additional datasets; 
 [] SFT: update synthetic data generation to handle those datasets

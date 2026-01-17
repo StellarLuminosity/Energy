@@ -44,9 +44,12 @@ def generate_synthetic_dataset(
     max_seq_len = getattr(config, "max_sequence_length", None) or config.get("data.max_sequence_length", 2048)
     synthetic_path = config.get("synthetic_data.synthetic_dataset_path")
     dataset_path = config.dataset_path or config.get("data.dataset_path")
+    dataset_name = config.dataset_name or config.get("data.dataset_name")
 
     if not dataset_path:
         raise ValueError("dataset_path is not set. Run tulu_preprocess_dataset.py first.")
+
+    print(f"Using dataset_choice='{dataset_name}' from preprocessed dataset at: {dataset_path}")
 
     # Start energy tracking for teacher generation (single stage)
     if energy_tracker and energy_tracker.current_stage is None:
