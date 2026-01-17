@@ -32,7 +32,7 @@ data:
 synthetic_data:
   # Dataset for prompts
   num_samples: 20000  # Number of dataset examples to process
-  max_gen_examples: 8000 # Number of synthetic examples go negerate
+  max_gen_examples: 8000 # Number of synthetic examples to generate
 
 # Training configuration
 training:

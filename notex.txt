@@ -30,9 +30,9 @@ What still needs to be coded:
     [X] 1b 
     [X] 7b
     [X] 13b
-[] Test the synthetic generation script
 [X] SFT: add preprocessing scripts for two additional datasets; 
-[] SFT: update synthetic data generation to handle those datasets
+[X] SFT: update synthetic data generation to handle those datasets
+[] Test the synthetic generation script
 [] test the SFT scripts and dataset contents
 [] test the SFT main pipeline
 [] run the dpo preprocessing pipeline
