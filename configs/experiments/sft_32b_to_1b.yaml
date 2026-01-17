@@ -39,7 +39,7 @@ synthetic_data:
   filtering:
     enabled: true
     min_length: 10  # Minimum response length in tokens
-    max_length: 1024
+    max_length: 2048
     # Additional filters can be added (e.g., perplexity threshold)
   
   # Paths
