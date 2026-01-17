@@ -41,7 +41,7 @@ def generate_synthetic_dataset(
     decoding_strategy = gen_config.get("decoding_strategy", "sampling")
     generation_batch_size = gen_config.get("batch_size", 1)
 
-    max_seq_len = config.get("data.max_sequence_length", 1024)
+    max_seq_len = getattr(config, "max_sequence_length", None) or config.get("data.max_sequence_length", 2048)
     synthetic_path = config.get("synthetic_data.synthetic_dataset_path")
     dataset_path = config.dataset_path or config.get("data.dataset_path")
 
