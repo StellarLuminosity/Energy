@@ -30,7 +30,10 @@ What still needs to be coded:
 What still needs to be coded:
 [X] Copy configs
 [X] test the KD pipeline
-[] Launch the KD pipeline for 1b, 7b, 13b
+[X] Launch the KD pipeline for 
+    [X] 1b 
+    [X] 7b
+    [X] 13b
 [] Test the synthetic generation script
 [] SFT: add preprocessing scripts for two additional datasets; 
 [] SFT: update synthetic data generation to handle those datasets

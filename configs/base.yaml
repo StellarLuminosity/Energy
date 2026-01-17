@@ -25,7 +25,7 @@ data:
       dataset_path: "/scratch/klambert/dataset/open-r1-codeforces-preprocessed"
     math:
       dataset_name: "open-r1/OpenR1-Math-220k"
-      dataset_split: "default"
+      dataset_split: "train"
       dataset_path: "/scratch/klambert/dataset/openr1-math-220k-preprocessed"
 
 # Synthetic data generation defaults

@@ -6,8 +6,8 @@ pipeline: "sft"
 
 # Experiment identification
 experiment:
-  name: "sft_olmo2_7b_to_1b"
-  description: "Data distillation: 7B teacher generates data, 1B student learns via SFT"
+  name: "sft_olmo2_32b_to_1b"
+  description: "Data distillation: 32B teacher generates data, 1B student learns via SFT"
 
 # Models
 model:
@@ -17,7 +17,7 @@ model:
 
 # Dataset selection
 data:
-  dataset_choice: "codeforces" # 'math', 'codeforces'
+  dataset_choice: "math" # 'math', 'codeforces'
 
 # Preprocessing settings
 num_samples: 0         # 0 => use all examples

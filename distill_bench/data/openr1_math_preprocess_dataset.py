@@ -1,4 +1,5 @@
 import os
+import re
 import random
 import shutil
 from pathlib import Path
@@ -9,6 +10,27 @@ from transformers import AutoTokenizer
 
 from distill_bench.core.config_loader import load_config
 from distill_bench.core.energy_logger import EnergyTracker
+
+THINK_START = "<think>"
+THINK_END = "</think>"
+
+
+def strip_think_block(text: str) -> str:
+    """Remove <think>...</think> blocks from a string, if present."""
+    if not isinstance(text, str):
+        return text
+
+    # Simple loop so we handle multiple think blocks if they ever appear
+    while True:
+        start = text.find(THINK_START)
+        if start == -1:
+            break
+        end = text.find(THINK_END, start + len(THINK_START))
+        if end == -1:
+            # No closing tag; be conservative and just break
+            break
+        text = text[:start] + text[end + len(THINK_END) :]
+    return text.strip()
 
 
 def create_response_labels(sample, tokenizer):
@@ -53,17 +75,29 @@ def contains_complete_response_template(sample, tokenizer):
 def build_messages(sample):
     """Create chat messages; prefer existing messages if present."""
     if "messages" in sample and sample["messages"]:
-        return sample["messages"]
+        # OpenR1 already has messages; strip <think> blocks from assistant content
+        msgs = []
+        for m in sample["messages"]:
+            m = dict(m)  # avoid mutating underlying HF object
+            if m.get("role") == "assistant" and isinstance(m.get("content"), str):
+                m["content"] = strip_think_block(m["content"])
+            msgs.append(m)
+        return msgs
 
+    # Fallback: build messages from problem / solution / answer
     problem = sample.get("problem") or sample.get("content") or ""
     answer = sample.get("answer")
     solution = sample.get("solution")
+
     assistant_content_parts = []
     if solution:
         assistant_content_parts.append(solution)
     if answer:
         assistant_content_parts.append(f"Answer: {answer}")
     assistant_content = "\n".join(assistant_content_parts) if assistant_content_parts else ""
+
+    # Strip think if it was embedded in solution text
+    assistant_content = strip_think_block(assistant_content) if assistant_content else ""
 
     messages = [{"role": "user", "content": problem}]
     if assistant_content:
@@ -178,7 +212,8 @@ def main(config, energy_tracker: EnergyTracker = None, stage_name: str = "openr1
     print(f"\n=== SAVING DATASET TO {save_path} ===")
     if os.path.exists(save_path):
         shutil.rmtree(save_path)
-    allowed_cols = {"input_ids", "attention_mask", "labels", "id"}
+
+    allowed_cols = {"input_ids", "attention_mask", "labels"}
     cleaned = split_dataset.remove_columns([col for col in split_dataset["train"].column_names if col not in allowed_cols])
     cleaned.save_to_disk(save_path)
     print(f"Saved train={len(cleaned['train'])}, test={len(cleaned['test'])}")
