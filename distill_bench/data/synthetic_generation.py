@@ -242,42 +242,125 @@ def load_synthetic_dataset(config: Config) -> datasets.DatasetDict:
         print(f"Synthetic dataset not found at {synthetic_path}. Generate dataset before running.")
 
 
-def run_basic_checks(split_dataset: datasets.DatasetDict, tokenizer: AutoTokenizer, num_examples: int = 3) -> None:
-    """Lightweight sanity checks on the saved synthetic dataset."""
+def run_basic_checks(
+    split_dataset: datasets.DatasetDict,
+    tokenizer: AutoTokenizer,
+    num_examples: int = 3,
+    max_token_check_examples: int = 1000,
+) -> None:
+    """Sanity checks on the saved synthetic dataset."""
+    # ---- Basic structural checks ----
     if not isinstance(split_dataset, datasets.DatasetDict):
-        print("Dataset is not split; skipping split checks.")
+        print("[CHECK] Dataset is not a DatasetDict; skipping split checks.")
+        return
+
+    if "train" not in split_dataset:
+        print("[CHECK] No 'train' split found; available keys:", list(split_dataset.keys()))
         return
 
     train_len = len(split_dataset["train"])
-    test_len = len(split_dataset["test"])
+    test_len = len(split_dataset.get("test", []))
     total_len = train_len + test_len
     print(f"[CHECK] Columns: {split_dataset['train'].column_names}")
     print(f"[CHECK] Split sizes -> train: {train_len}, test: {test_len}, total: {total_len}")
 
-    sample_ds = split_dataset["train"]
-    if len(sample_ds) == 0:
-        print("[CHECK] No samples available to decode.")
+    if train_len == 0:
+        print("[CHECK] Train split is empty; nothing to inspect.")
         return
 
-    print(f"[CHECK] Showing up to {num_examples} decoded samples from train split:")
+    # ---- Token ID range check (input_ids) ----
+    print("\n[CHECK] Verifying token ID range on train split...")
+    max_token_id = -1
+    min_token_id = float("inf")
+    checked = 0
+
+    n_to_check = min(max_token_check_examples, train_len)
+    for ex in split_dataset["train"].select(range(n_to_check)):
+        input_ids = ex["input_ids"]
+        if isinstance(input_ids, torch.Tensor):
+            input_ids = input_ids.tolist()
+        if not input_ids:
+            continue
+        max_token_id = max(max_token_id, max(input_ids))
+        min_token_id = min(min_token_id, min(input_ids))
+        checked += 1
+
+    if checked == 0:
+        print("[CHECK] No non-empty examples to check token ranges.")
+    else:
+        print(f"[CHECK] Token ID range (first {checked} train examples): {min_token_id} .. {max_token_id}")
+        print(f"[CHECK] Tokenizer vocab size: {len(tokenizer)}")
+        if max_token_id >= len(tokenizer):
+            print(
+                f"[CHECK][WARN] Max token ID ({max_token_id}) >= vocab size ({len(tokenizer)}). "
+                "This will cause issues in training; check tokenizer/model mismatch."
+            )
+        else:
+            print("[CHECK] ✓ All token IDs are within vocabulary range.")
+
+    # ---- Per-example label mask + decode ----
+    print(f"\n[CHECK] Showing up to {num_examples} decoded samples from 'train' with label mask info:")
+    sample_ds = split_dataset["train"]
     for i in range(min(num_examples, len(sample_ds))):
         rec = sample_ds[i]
         input_ids = rec["input_ids"]
         attn = rec.get("attention_mask", None)
+        labels = rec.get("labels", None)
 
         if isinstance(input_ids, torch.Tensor):
             input_ids = input_ids.tolist()
         if attn is not None and isinstance(attn, torch.Tensor):
             attn = attn.tolist()
+        if labels is not None and isinstance(labels, torch.Tensor):
+            labels = labels.tolist()
 
+        # length checks
+        if attn is not None and len(input_ids) != len(attn):
+            print(f"[CHECK][WARN] Sample {i}: len(input_ids) != len(attention_mask)")
+        if labels is not None and len(input_ids) != len(labels):
+            print(f"[CHECK][WARN] Sample {i}: len(input_ids) != len(labels)")
+
+        # find response region according to labels
+        response_idxs = []
+        if labels is not None:
+            response_idxs = [j for j, lab in enumerate(labels) if lab != -100]
+
+        if not response_idxs:
+            print(f"[CHECK][WARN] Sample {i}: no labels != -100 (no response region detected)")
+            prompt_end = len(input_ids)
+        else:
+            prompt_end = response_idxs[0]
+            # ensure labels match input_ids in response region
+            mismatches = 0
+            for j in response_idxs:
+                if labels[j] != input_ids[j]:
+                    mismatches += 1
+            if mismatches > 0:
+                print(f"[CHECK][WARN] Sample {i}: {mismatches} mismatches where labels != input_ids in response region")
+
+        # build trimmed_ids for decoding according to attention_mask
         if attn is not None:
             trimmed_ids = [tid for tid, mask in zip(input_ids, attn) if mask == 1]
         else:
             trimmed_ids = input_ids
 
-        decoded = tokenizer.decode(trimmed_ids, skip_special_tokens=True)
-        print(f"[CHECK] Sample {i} token ids (truncated 50): {trimmed_ids[:50]}")
-        print(f"[CHECK] Sample {i} text: {decoded}")
+        # decode full text (trimmed by attention_mask)
+        decoded_full = tokenizer.decode(trimmed_ids, skip_special_tokens=True)
+
+        # decode prompt/response separately using labels
+        prompt_ids = input_ids[:prompt_end]
+        response_ids = input_ids[prompt_end:] if prompt_end < len(input_ids) else []
+
+        decoded_prompt = tokenizer.decode(prompt_ids, skip_special_tokens=True)
+        decoded_response = tokenizer.decode(response_ids, skip_special_tokens=True)
+
+        print(f"\n[CHECK] Sample {i}:")
+        print(f"  length(input_ids)={len(input_ids)}, prompt_end={prompt_end}, response_len={len(response_ids)}")
+        print(f"  first 30 token ids: {input_ids[:30]}")
+        print(f"  first 30 labels:    {labels[:30] if labels is not None else 'N/A'}")
+        print(f"  [decoded] PROMPT (tail, up to 200 chars): {decoded_prompt[-200:]}")
+        print(f"  [decoded] RESPONSE (head, up to 200 chars): {decoded_response[:200]}")
+        print(f"  [decoded] FULL (trimmed by attention_mask, up to 200 chars): {decoded_full[:200]}")
 
 
 if __name__ == "__main__":
