@@ -9,7 +9,7 @@ Results to Report - last test run of prerun.py:
   Samples: 601
 
 Directories to clear / check before runs:
-- For energy logs: /home/klambert/projects/aip-craffel/klambert/Energy/logs 
+- For energy logs: /home/klambert/projects/aip-craffel/klambert/Energy/logs
 - For Tulu core datset: /scratch/klambert/dataset/tulu-3-sft-mixture-preprocessed
 
 KD:
@@ -20,6 +20,7 @@ SFT:
 - Synthetic dataset path: /scratch/klambert/dataset/synthetic_32b_to_1b
 - Env metadata, checkpoints, and model: /scratch/klambert/model_log/energy_experiments/sft_32b_to_1b
 - Change dataset choice in the sft and base configs before launching scirpts!
+
 DPO:
 - Env metadata, checkpoints, and model: /scratch/klambert/model_log/energy_experiments/dpo_32b_to_1b
 

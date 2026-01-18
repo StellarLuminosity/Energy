@@ -69,7 +69,7 @@ class StageMetrics:
     gpu_power_samples: List[float] = field(default_factory=list)
 
     # CodeCarbon metrics
-    codecarbon_energy_kwh: float = 0.0
+    total_codecarbon_energy_kwh: float = 0.0
     codecarbon_emissions_kg: float = 0.0
 
     # CPU + total
@@ -91,7 +91,7 @@ class StageMetrics:
 
         gpu_j = self.gpu_energy_joules
         cpu_j = self.cpu_energy_joules
-        cc_kwh = self.codecarbon_energy_kwh
+        cc_kwh = self.total_codecarbon_energy_kwh
         cc_j = cc_kwh * 3_600_000 if cc_kwh > 0 else 0.0
 
         # Total energy selection policy
@@ -457,6 +457,7 @@ class EnergyTracker:
         # Start CodeCarbon
         try:
             project_name = f"{self.experiment_name}_{stage_id}"
+            visible_gpus = os.environ.get("CUDA_VISIBLE_DEVICES", None)
             if self.offline_mode:
                 self._codecarbon_tracker = OfflineEmissionsTracker(
                     project_name=project_name,
@@ -565,7 +566,7 @@ class EnergyTracker:
                 self._codecarbon_tracker = None
 
             # Read energy from emissions.csv
-            stage_metrics.codecarbon_energy_kwh = self._read_codecarbon_energy_kwh(
+            stage_metrics.total_codecarbon_energy_kwh = self._read_total_codecarbon_energy_kwh(
                 self.codecarbon_dir,
                 project_name=f"{self.experiment_name}_{stage_id}",
             )
@@ -674,7 +675,7 @@ class EnergyTracker:
 
         return metrics
 
-    def _read_codecarbon_energy_kwh(self, codecarbon_dir: Path, project_name: str) -> float:
+    def _read_total_codecarbon_energy_kwh(self, codecarbon_dir: Path, project_name: str) -> float:
         emissions_csv = codecarbon_dir / "emissions.csv"
         if not emissions_csv.exists():
             candidates = [p for p in codecarbon_dir.glob("*.csv") if p.name.startswith("emissions")]
