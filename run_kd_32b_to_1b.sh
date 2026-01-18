@@ -1,6 +1,5 @@
 #!/bin/bash
 #SBATCH --job-name=kd_distill_1b
-#SBATCH --exclusive
 #SBATCH --output=/scratch/klambert/run_logs/%x_%j.out                
 #SBATCH --error=/scratch/klambert/run_logs/%x_%j.err                                            
 #SBATCH --partition=gpubase_h100_b2
