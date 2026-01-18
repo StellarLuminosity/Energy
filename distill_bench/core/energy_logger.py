@@ -555,7 +555,6 @@ class EnergyTracker:
 
         # Stop CodeCarbon
         if self._codecarbon_tracker is not None:
-            codecarbon_dir = self.energy_root / "codecarbon" / stage_id
             try:
                 emissions = self._codecarbon_tracker.stop()
                 if emissions is not None:
@@ -565,11 +564,17 @@ class EnergyTracker:
             finally:
                 self._codecarbon_tracker = None
 
-            # Read energy from emissions.csv
-            stage_metrics.total_codecarbon_energy_kwh = self._read_total_codecarbon_energy_kwh(
+            # Read per-component energy from emissions.csv (all kWh)
+            cc_metrics = self._read_codecarbon_metrics(
                 self.codecarbon_dir,
                 project_name=f"{self.experiment_name}_{stage_id}",
             )
+            if cc_metrics is not None:
+                stage_metrics.codecarbon_energy_kwh = cc_metrics["energy_consumed_kwh"]
+
+                # If RAPL didn't populate CPU, fall back to CodeCarbon's CPU estimate
+                if stage_metrics.cpu_energy_joules <= 0.0 and cc_metrics["cpu_energy_kwh"] > 0.0:
+                    stage_metrics.cpu_energy_joules = cc_metrics["cpu_energy_kwh"] * 3_600_000.0  # kWh -> J
 
         # RAPL CPU energy
         if self.track_cpu and self._rapl_reader is not None:
@@ -675,14 +680,20 @@ class EnergyTracker:
 
         return metrics
 
-    def _read_total_codecarbon_energy_kwh(self, codecarbon_dir: Path, project_name: str) -> float:
+    def _read_codecarbon_metrics(
+        self, codecarbon_dir: Path, project_name: str
+    ) -> Optional[Dict[str, float]]:
+        """
+        Read the last CodeCarbon row for this project_name and return
+        energy metrics in kWh.
+        """
         emissions_csv = codecarbon_dir / "emissions.csv"
         if not emissions_csv.exists():
             candidates = [p for p in codecarbon_dir.glob("*.csv") if p.name.startswith("emissions")]
             if candidates:
                 emissions_csv = sorted(candidates)[-1]
             else:
-                return 0.0
+                return None
 
         for _ in range(5):
             try:
@@ -693,13 +704,26 @@ class EnergyTracker:
                         if row and row.get("project_name") == project_name:
                             last_match = row
                 if last_match:
-                    val = last_match.get("energy_consumed", "")
-                    return float(val) if val not in (None, "") else 0.0
+                    def _get(name: str) -> float:
+                        val = last_match.get(name, "")
+                        return float(val) if val not in (None, "") else 0.0
+
+                    return {
+                        "energy_consumed_kwh": _get("energy_consumed"),
+                        "cpu_energy_kwh": _get("cpu_energy"),
+                        "gpu_energy_kwh": _get("gpu_energy"),
+                        "ram_energy_kwh": _get("ram_energy"),
+                    }
             except Exception:
                 pass
             time.sleep(0.1)
 
-        return 0.0
+        return None
+
+    # Backwards-compatible wrapper if anything else still calls the old name
+    def _read_codecarbon_energy_kwh(self, codecarbon_dir: Path, project_name: str) -> float:
+        metrics = self._read_codecarbon_metrics(codecarbon_dir, project_name)
+        return metrics["energy_consumed_kwh"] if metrics is not None else 0.0
 
     def _cleanup(self):
         """Cleanup resources on exit."""
