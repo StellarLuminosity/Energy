@@ -6,7 +6,7 @@ pipeline: "sft"
 
 # Experiment identification
 experiment:
-  name: "sft_olmo2_32b_to_7b"
+  name: "synthetic_math" # "sft_olmo2_32b_to_7b"
   description: "Data distillation: 32B teacher generates data, 7B student learns via SFT"
 
 # Models
@@ -17,7 +17,7 @@ model:
 
 # Dataset selection
 data:
-  dataset_choice: "tulu"
+  dataset_choice: "math"
 
 # Preprocessing settings
 num_samples: 0         # 0 => use all examples
@@ -44,12 +44,12 @@ synthetic_data:
     # Additional filters can be added (e.g., perplexity threshold)
   
   # Paths
-  synthetic_dataset_path: "/scratch/klambert/dataset/synthetic_32b_to_7b"
+  synthetic_dataset_path: "/scratch/klambert/dataset/synthetic_math"
   use_existing: false  # If true, skip generation and use existing dataset
 
 # Output
 output:
-  output_dir: "/scratch/klambert/model_log/energy_experiments/sft_32b_to_7b"
+  output_dir: "/scratch/klambert/model_log/energy_experiments/sft_32b_to_7b/math"
 
 # W&B override
 wandb:

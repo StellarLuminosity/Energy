@@ -356,7 +356,7 @@ class EnergyTracker:
                         return nested_val
             return default
 
-        self.experiment_name = _cfg(experiment_name, "experiment_name", "experiment.name", "experiment")
+        self.experiment_name = _cfg(None, "experiment_name", "experiment.name")
         self.nvml_poll_interval_ms = _cfg(nvml_poll_interval_ms, "energy_nvml_poll_ms", "energy.nvml_poll_interval_ms", 500)
         self.country_iso_code = _cfg(country_iso_code, "energy_country_iso", "energy.country_iso_code", "USA")
         self.offline_mode = _cfg(offline_mode, "energy_offline_mode", "energy.offline_mode", True)
@@ -402,8 +402,7 @@ class EnergyTracker:
             print(f"Warning: Stage '{self.current_stage}' still running. Ending it first.")
             self.end_stage()
 
-        # Include experiment name so stage labels stay unique across configs
-        stage_full_name = f"{stage_name}_{self.experiment_name}" if self.experiment_name else stage_name
+        stage_full_name = self.experiment_name or stage_name
 
         n = self._stage_counts.get(stage_full_name, 0) + 1
         self._stage_counts[stage_full_name] = n
@@ -457,7 +456,7 @@ class EnergyTracker:
 
         # Start CodeCarbon
         try:
-            project_name = f"{self.experiment_name}_{stage_id}"
+            project_name = stage_id
 
             # Common kwargs for both offline and online trackers
             cc_kwargs = {
@@ -571,10 +570,10 @@ class EnergyTracker:
             # Read per-component energy from emissions.csv (all kWh)
             cc_metrics = self._read_codecarbon_metrics(
                 self.codecarbon_dir,
-                project_name=f"{self.experiment_name}_{stage_id}",
+                project_name=stage_id,
             )
             if cc_metrics is not None:
-                stage_metrics.codecarbon_energy_kwh = cc_metrics["energy_consumed_kwh"]
+                stage_metrics.total_codecarbon_energy_kwh = cc_metrics["energy_consumed_kwh"]
                 stage_metrics.codecarbon_cpu_energy_kwh = cc_metrics["cpu_energy_kwh"]
                 stage_metrics.codecarbon_gpu_energy_kwh = cc_metrics["gpu_energy_kwh"]
                 stage_metrics.codecarbon_ram_energy_kwh = cc_metrics["ram_energy_kwh"]
