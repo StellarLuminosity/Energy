@@ -5,8 +5,7 @@
 #SBATCH --error=/scratch/klambert/run_logs/%x_%j.err                                            
 #SBATCH --partition=gpubase_h100_b2
 #SBATCH --gres=gpu:h100:1
-#SBATCH --cpus-per-task=16  
-#SBATCH --cpu-bind=cores                                                                   
+#SBATCH --cpus-per-task=16                                                                 
 #SBATCH --mem=120GB
 #SBATCH --export=NONE
 #SBATCH --account=aip-craffel  
@@ -26,7 +25,6 @@ set -x
 # Get config path and extra args
 CONFIG_PATH=${1:-"configs/experiments/kd_32b_to_7b.yaml"}
 EXTRA_ARGS="${@:2}"
-export CUDA_VISIBLE_DEVICES=0
 
 echo "==============================================="
 echo "Distillation Energy Benchmark"
