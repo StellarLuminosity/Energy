@@ -46,7 +46,7 @@ export OPENBLAS_NUM_THREADS="$OMP_NUM_THREADS"
 export NUMEXPR_NUM_THREADS="$OMP_NUM_THREADS"
 
 # Huggingface Settings:
-export HF_HOME=$SCRATCH/hf_cache
+export HF_HOME=/scratch/klambert/hf_cache
 export HF_DATASETS_OFFLINE=1
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
