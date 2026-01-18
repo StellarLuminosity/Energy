@@ -436,22 +436,19 @@ class EnergyTracker:
             except Exception as e:
                 print(f"[EnergyTracker] Warning: failed to save config for stage '{stage_id}': {e}")
 
-        # RAPL CPU energy
+        # RAPL CPU energy: use it if available, otherwise fall back to CodeCarbon
         if self.track_cpu and self._rapl_reader is not None:
             if not self._rapl_reader.available:
-                # Disable permanently to avoid repeated warnings / overhead
-                self.track_cpu = False
+                print("[EnergyTracker] RAPL not available; will rely on CodeCarbon CPU estimates.")
                 self._rapl_reader = None
             else:
                 try:
                     self._rapl_reader.start()
                 except PermissionError as e:
-                    print(f"[EnergyTracker] RAPL permission denied; disabling CPU energy. ({e})")
-                    self.track_cpu = False
+                    print(f"[EnergyTracker] RAPL permission denied; will rely on CodeCarbon CPU estimates. ({e})")
                     self._rapl_reader = None
                 except Exception as e:
-                    print(f"[EnergyTracker] RAPL start failed; disabling CPU energy. ({e})")
-                    self.track_cpu = False
+                    print(f"[EnergyTracker] RAPL start failed; will rely on CodeCarbon CPU estimates. ({e})")
                     self._rapl_reader = None
 
         # Start CodeCarbon
