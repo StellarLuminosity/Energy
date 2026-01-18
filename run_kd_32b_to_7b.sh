@@ -5,7 +5,8 @@
 #SBATCH --error=/scratch/klambert/run_logs/%x_%j.err                                            
 #SBATCH --partition=gpubase_h100_b2
 #SBATCH --gres=gpu:h100:1
-#SBATCH --cpus-per-task=16                                                                     
+#SBATCH --cpus-per-task=16  
+#SBATCH --cpu-bind=cores                                                                   
 #SBATCH --mem=120GB
 #SBATCH --export=NONE
 #SBATCH --account=aip-craffel  
@@ -19,7 +20,7 @@
 # Example override of run_dir:
 #   bash run_pipeline.sh configs/experiments/dpo_32b_to_1b.yaml --run-dir /tmp/my_run
 
-set -e 
+set -e
 set -x
 
 # Get config path and extra args
@@ -42,6 +43,12 @@ echo "==============================================="
 export SLURM_JOB_ID=$SLURM_JOB_ID
 export SLURM_JOB_NAME=$SLURM_JOB_NAME
 export SLURM_NODELIST=$SLURM_NODELIST
+
+# Device Settings
+export OMP_NUM_THREADS="${SLURM_CPUS_PER_TASK:-16}"
+export MKL_NUM_THREADS="$OMP_NUM_THREADS"
+export OPENBLAS_NUM_THREADS="$OMP_NUM_THREADS"
+export NUMEXPR_NUM_THREADS="$OMP_NUM_THREADS"
 
 # Memory optimization
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
