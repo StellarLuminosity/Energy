@@ -67,10 +67,14 @@ class StageMetrics:
     gpu_avg_power_watts: float = 0.0
     gpu_peak_power_watts: float = 0.0
     gpu_power_samples: List[float] = field(default_factory=list)
-
+    
     # CodeCarbon metrics
-    total_codecarbon_energy_kwh: float = 0.0
+    # energy_consumed = cpu_energy + gpu_energy + ram_energy (all kWh)
+    codecarbon_energy_kwh: float = 0.0
     codecarbon_emissions_kg: float = 0.0
+    codecarbon_cpu_energy_kwh: float = 0.0
+    codecarbon_gpu_energy_kwh: float = 0.0
+    codecarbon_ram_energy_kwh: float = 0.0
 
     # CPU + total
     cpu_energy_joules: float = 0.0
@@ -571,11 +575,14 @@ class EnergyTracker:
             )
             if cc_metrics is not None:
                 stage_metrics.codecarbon_energy_kwh = cc_metrics["energy_consumed_kwh"]
+                stage_metrics.codecarbon_cpu_energy_kwh = cc_metrics["cpu_energy_kwh"]
+                stage_metrics.codecarbon_gpu_energy_kwh = cc_metrics["gpu_energy_kwh"]
+                stage_metrics.codecarbon_ram_energy_kwh = cc_metrics["ram_energy_kwh"]
 
                 # If RAPL didn't populate CPU, fall back to CodeCarbon's CPU estimate
                 if stage_metrics.cpu_energy_joules <= 0.0 and cc_metrics["cpu_energy_kwh"] > 0.0:
                     stage_metrics.cpu_energy_joules = cc_metrics["cpu_energy_kwh"] * 3_600_000.0  # kWh -> J
-
+        
         # RAPL CPU energy
         if self.track_cpu and self._rapl_reader is not None:
             try:
@@ -686,6 +693,13 @@ class EnergyTracker:
         """
         Read the last CodeCarbon row for this project_name and return
         energy metrics in kWh.
+
+        Returns a dict containing:
+            - energy_consumed_kwh
+            - cpu_energy_kwh
+            - gpu_energy_kwh
+            - ram_energy_kwh
+        or None if no matching row is found.
         """
         emissions_csv = codecarbon_dir / "emissions.csv"
         if not emissions_csv.exists():
@@ -708,6 +722,7 @@ class EnergyTracker:
                         val = last_match.get(name, "")
                         return float(val) if val not in (None, "") else 0.0
 
+                    # Per CodeCarbon docs, these are all in kWh
                     return {
                         "energy_consumed_kwh": _get("energy_consumed"),
                         "cpu_energy_kwh": _get("cpu_energy"),
@@ -715,12 +730,13 @@ class EnergyTracker:
                         "ram_energy_kwh": _get("ram_energy"),
                     }
             except Exception:
+                # File may still be flushing; retry
                 pass
             time.sleep(0.1)
 
         return None
 
-    # Backwards-compatible wrapper if anything else still calls the old name
+    # Backwards-compatible helper if anything else still calls the old name
     def _read_codecarbon_energy_kwh(self, codecarbon_dir: Path, project_name: str) -> float:
         metrics = self._read_codecarbon_metrics(codecarbon_dir, project_name)
         return metrics["energy_consumed_kwh"] if metrics is not None else 0.0
