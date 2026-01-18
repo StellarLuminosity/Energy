@@ -454,20 +454,23 @@ class EnergyTracker:
         # Start CodeCarbon
         try:
             project_name = f"{self.experiment_name}_{stage_id}"
-            visible_gpus = os.environ.get("CUDA_VISIBLE_DEVICES", None)
+
+            # Common kwargs for both offline and online trackers
+            cc_kwargs = {
+                "project_name": project_name,
+                "output_dir": str(self.codecarbon_dir),
+                "country_iso_code": self.country_iso_code,
+                "log_level": "error",
+                # process-level accounting so other users' CPU doesn't get picked up
+                "tracking_mode": "process",
+                "gpu_ids": os.environ.get("CUDA_VISIBLE_DEVICES", None),
+            }
+
             if self.offline_mode:
-                self._codecarbon_tracker = OfflineEmissionsTracker(
-                    project_name=project_name,
-                    output_dir=str(self.codecarbon_dir),
-                    country_iso_code=self.country_iso_code,
-                    log_level="error",
-                )
+                self._codecarbon_tracker = OfflineEmissionsTracker(**cc_kwargs)
             else:
-                self._codecarbon_tracker = EmissionsTracker(
-                    project_name=project_name,
-                    output_dir=str(self.codecarbon_dir),
-                    log_level="error",
-                )
+                self._codecarbon_tracker = EmissionsTracker(**cc_kwargs)
+
             self._codecarbon_tracker.start()
         except Exception as e:
             print(f"Warning: CodeCarbon start failed: {e}")
