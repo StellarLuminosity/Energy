@@ -70,8 +70,7 @@ def generate_synthetic_dataset(
         prompt_dataset = prompt_dataset["train"]
 
     max_gen_examples = getattr(config, "max_gen_examples", None)
-
-    print(f"Generating {len(max_gen_examples)} synthetic examples...")
+    print(f"Generating {(max_gen_examples)} synthetic examples...")
 
     # Storage for synthetic data
     synthetic_data = {

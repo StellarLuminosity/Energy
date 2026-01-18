@@ -70,7 +70,7 @@ class StageMetrics:
     
     # CodeCarbon metrics
     # energy_consumed = cpu_energy + gpu_energy + ram_energy (all kWh)
-    codecarbon_energy_kwh: float = 0.0
+    total_codecarbon_energy_kwh: float = 0.0
     codecarbon_emissions_kg: float = 0.0
     codecarbon_cpu_energy_kwh: float = 0.0
     codecarbon_gpu_energy_kwh: float = 0.0
