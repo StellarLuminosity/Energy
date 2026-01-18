@@ -356,7 +356,7 @@ class EnergyTracker:
                         return nested_val
             return default
 
-        self.experiment_name = _cfg(None, "experiment_name", "experiment.name")
+        self.experiment_name = _cfg(None, "experiment_name", "experiment.name", "experiment")
         self.nvml_poll_interval_ms = _cfg(nvml_poll_interval_ms, "energy_nvml_poll_ms", "energy.nvml_poll_interval_ms", 500)
         self.country_iso_code = _cfg(country_iso_code, "energy_country_iso", "energy.country_iso_code", "USA")
         self.offline_mode = _cfg(offline_mode, "energy_offline_mode", "energy.offline_mode", True)
