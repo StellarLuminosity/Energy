@@ -22,7 +22,7 @@ data:
 # KD-specific hyperparameters
 distillation:
   # Loss weighting: total_loss = alpha * CE + (1-alpha) * KL
-  alpha: 0.5  # 0.5 = equal weight to CE and KL
+  alpha: 0.5  # 0.5 = equal weight to CE and KL 
   
   # Temperature for KL divergence
   temperature: 1.0

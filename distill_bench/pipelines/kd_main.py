@@ -163,7 +163,19 @@ def main(args):
     # ----------------------------------
     # Optimizer and Scheduler
     # ----------------------------------
-    optimizer = torch.optim.AdamW(student_model.parameters(), lr=config.learning_rate)
+    optimizer_name = getattr(config, "optimizer", "adamw").lower()
+    
+    if optimizer_name == "adafactor":
+        from transformers.optimization import Adafactor
+
+        optimizer = Adafactor(
+            student_model.parameters(),
+            lr=config.learning_rate,
+            scale_parameter=True,
+            relative_step=False,
+        )
+    else:
+        optimizer = torch.optim.AdamW(student_model.parameters(), lr=config.learning_rate)
 
     num_training_steps = (
         len(train_dataloader) * config.num_epochs if config.num_training_steps == 0 else config.num_training_steps
