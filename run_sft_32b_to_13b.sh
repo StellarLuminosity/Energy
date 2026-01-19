@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=sft_13b_distill
+#SBATCH --job-name=sft_synthetic_codeforces_generation
 #SBATCH --output=/scratch/klambert/run_logs/%x_%j.out                
 #SBATCH --error=/scratch/klambert/run_logs/%x_%j.err                                            
 #SBATCH --partition=compute

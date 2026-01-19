@@ -49,7 +49,7 @@ synthetic_data:
 
 # Output
 output:
-  output_dir: "/scratch/klambert/model_log/energy_experiments/sft_32b_to_13b/code"
+  output_dir: "/scratch/klambert/model_log/energy_experiments/sft_32b_to_13b/codeforces"
 
 # W&B override
 wandb:
