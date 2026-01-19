@@ -10,8 +10,6 @@ from pathlib import Path
 from distill_bench.core.config_loader import load_config
 from distill_bench.core.energy_logger import EnergyTracker
 
-
-# Default Tülu-style eval suite; tweak if you want fewer tasks.
 DEFAULT_TASKS = ["tulu_3_dev", "tulu_3_unseen"]
 
 

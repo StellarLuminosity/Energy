@@ -23,3 +23,6 @@ Choices for `-data-script`: `synthetic_generation`, `preference_dataset`, `logit
 ## DPO training
 - `sbatch run_pipeline.sh configs/experiments/dpo_32b_to_1b.yaml`
 - `sbatch run_pipeline.sh configs/experiments/dpo_32b_to_7b.yaml`
+
+## Benchmark Evaluation
+- Olmo: `sbatch run_kd_32b_to_1b.sh configs/experiments/kd_32b_to_1b.yaml --data-script olmo_benchmark`
