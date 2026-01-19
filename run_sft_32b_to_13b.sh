@@ -54,6 +54,9 @@ export TRANSFORMERS_OFFLINE=1
 # Memory optimization
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
+# wandb settings
+export WANDB_DISABLED=true
+
 # Load modules
 module load StdEnv/2023
 module load gcc python/3.11 arrow/21
