@@ -94,6 +94,7 @@ class Config:
             "model",
             benchmark.get("model_name", None),
         )
+        self.benchmark_tasks = benchmark.get("tasks", None)
 
         # Pipeline
         self.pipeline = self._config.get("pipeline", "kd")
