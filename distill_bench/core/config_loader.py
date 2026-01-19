@@ -87,6 +87,16 @@ class Config:
         self.output_dir = output.get("output_dir", "./outputs")
         self.output_run_dir = output.get("run_dir", None)
 
+        # Benchmark / evaluation
+        benchmark = self._config.get("benchmark", {})
+        # Root directory where all benchmark runs will live
+        self.benchmark_output_dir = benchmark.get("output_dir", self.output_dir)
+        # Exact model name to evaluate (e.g., an OLMo-2 HF id or local path)
+        self.benchmark_model_name = benchmark.get(
+            "model_name",
+            self.student_model_name or self.teacher_model_name
+        )
+
         # Pipeline
         self.pipeline = self._config.get("pipeline", "kd")
 
