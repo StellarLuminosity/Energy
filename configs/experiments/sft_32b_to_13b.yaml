@@ -32,7 +32,7 @@ synthetic_data:
   generation:
     temperature: 0.13
     top_p: 0.9
-    max_new_tokens: 512
+    max_new_tokens: 1024
     decoding_strategy: "sampling"  # sampling vs greedy vs beam
     prompt_field: "messages"
   
