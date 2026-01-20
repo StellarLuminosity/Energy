@@ -8,9 +8,9 @@
 Choices for `-data-script`: `synthetic_generation`, `preference_dataset`, `logit_caching`, `tulu_preprocess_dataset`, `codeforces_preprocess_dataset`
 
 ## KD training
-- `sbatch run_kd_32b_to_13b.sh configs/experiments/kd_32b_to_13b.yaml`
 - `sbatch run_kd_32b_to_1b.sh configs/experiments/kd_32b_to_1b.yaml`
 - `sbatch run_kd_32b_to_7b.sh configs/experiments/kd_32b_to_7b.yaml`
+- `sbatch run_kd_32b_to_13b.sh configs/experiments/kd_32b_to_13b.yaml`
 
 ## SFT training
 - Synthetic data (1B): `sbatch run_sft_32b_to_1b.sh configs/experiments/sft_32b_to_1b.yaml --data-script synthetic_generation`
@@ -23,3 +23,6 @@ Choices for `-data-script`: `synthetic_generation`, `preference_dataset`, `logit
 ## DPO training
 - `sbatch run_pipeline.sh configs/experiments/dpo_32b_to_1b.yaml`
 - `sbatch run_pipeline.sh configs/experiments/dpo_32b_to_7b.yaml`
+
+## Benchmark Evaluation
+- Olmo: `sbatch run_kd_32b_to_1b.sh configs/experiments/kd_32b_to_1b.yaml --data-script olmo_benchmark`

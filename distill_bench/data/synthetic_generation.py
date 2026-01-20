@@ -71,7 +71,7 @@ def generate_synthetic_dataset(
     if isinstance(prompt_dataset, datasets.DatasetDict):
         prompt_dataset = prompt_dataset["train"]
 
-    max_gen_examples = getattr(config, "max_gen_examples", None)
+    max_gen_examples = getattr(config, "max_gen_examples", 7000)
     print(f"Generating {(max_gen_examples)} synthetic examples...")
 
     # Storage for synthetic data
@@ -158,9 +158,10 @@ def generate_synthetic_dataset(
             torch.cuda.empty_cache()
 
     # Generate responses
+    progress_bar = tqdm(prompt_dataset, desc="Collecting prompts (generation runs in batches)")
     with torch.inference_mode():
         processed_examples = 0
-        for idx, example in enumerate(tqdm(prompt_dataset, desc="Generating synthetic data")):
+        for idx, example in enumerate(progress_bar):
             if max_gen_examples is not None and processed_examples >= max_gen_examples:
                 print(f"[EARLY STOP] Reached synthetic generation limit ({max_gen_examples})")
                 break
@@ -194,12 +195,27 @@ def generate_synthetic_dataset(
                 )
 
                 if len(batch_prompts) >= generation_batch_size:
+                    flushed_batch_size = len(batch_prompts)
+                    tqdm.write(
+                        f"[FLUSH] Generating batch of {flushed_batch_size} prompts "
+                        f"(processed={processed_examples}, successes={successful_generations}, tokens={total_tokens_generated})"
+                    )
                     flush_batch()
+                    progress_bar.set_postfix(
+                        successes=successful_generations,
+                        tokens=total_tokens_generated,
+                        batch=flushed_batch_size,
+                    )
 
             except Exception as e:
                 print(f"Warning: Failed to generate for example {idx}: {e}")
                 continue
 
+        if batch_prompts:
+            tqdm.write(
+                f"[FLUSH] Generating final batch of {len(batch_prompts)} prompts "
+                f"(processed={processed_examples}, successes={successful_generations}, tokens={total_tokens_generated})"
+            )
         flush_batch()
 
     # End energy tracking

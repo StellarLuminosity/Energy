@@ -87,6 +87,16 @@ class Config:
         self.output_dir = output.get("output_dir", "./outputs")
         self.output_run_dir = output.get("run_dir", None)
 
+        # Benchmark / evaluation
+        benchmark = self._config.get("benchmark", {})
+        self.benchmark_output_dir = benchmark.get("output_dir", self.output_dir)
+        self.benchmark_model = benchmark.get(
+            "model",
+            benchmark.get("model_name", None),
+        )
+        self.benchmark_tasks = benchmark.get("tasks", None)
+        self.benchmark_name = benchmark.get("subfolder_name", None)
+
         # Pipeline
         self.pipeline = self._config.get("pipeline", "kd")
 

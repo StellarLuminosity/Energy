@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=kd_distill_7b
+#SBATCH --job-name=7b_benchmark
 #SBATCH --output=/scratch/klambert/run_logs/%x_%j.out                
 #SBATCH --error=/scratch/klambert/run_logs/%x_%j.err                                            
 #SBATCH --partition=gpubase_h100_b2
@@ -7,8 +7,7 @@
 #SBATCH --cpus-per-task=16                                                                 
 #SBATCH --mem=120GB
 #SBATCH --export=NONE
-#SBATCH --account=aip-craffel  
-#SBATCH --exclude=kn174                                  
+#SBATCH --account=aip-craffel                           
 #SBATCH --time=12:00:00
 
 # Unified experiment launcher for KD/SFT/DPO pipelines (single-GPU)
