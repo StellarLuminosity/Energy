@@ -40,8 +40,5 @@ What still needs to be coded:
 [] run the dpo preprocessing pipeline
 [] TEST ALL THE PIPELINES AND SET UP RUNS SO THAT THEY RUN IN PARALLEL
 
-Things to fix:
-[] training logging for the KD pipeline
-
 What still need to be done:
 [] unadd configs folder from the .gitignore

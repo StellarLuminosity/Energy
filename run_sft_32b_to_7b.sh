@@ -55,7 +55,10 @@ export TRANSFORMERS_OFFLINE=1
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # wandb settings
-export WANDB_DISABLED=true
+export WANDB_MODE=offline
+export WANDB_DIR=$SCRATCH/wandb
+mkdir -p "$WANDB_DIR"
+export WANDB_PROJECT="${WANDB_PROJECT:-$SLURM_JOB_NAME}"
 
 # Load modules
 module load StdEnv/2023
