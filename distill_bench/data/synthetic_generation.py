@@ -39,7 +39,7 @@ def generate_synthetic_dataset(
     top_p = gen_config.get("top_p", 0.9)
     max_new_tokens = gen_config.get("max_new_tokens", 1024)
     decoding_strategy = gen_config.get("decoding_strategy", "sampling")
-    generation_batch_size = gen_config.get("batch_size", 1)
+    generation_batch_size = config.get("batch_size", 4)
 
     max_seq_len = getattr(config, "max_sequence_length", None) or config.get("data.max_sequence_length", 2048)
     dataset_path = config.dataset_path or config.get("data.dataset_path")
@@ -59,6 +59,7 @@ def generate_synthetic_dataset(
     # Load tokenizer and teacher model
     print(f"Loading teacher model: {config.teacher_model_name}")
     tokenizer = AutoTokenizer.from_pretrained(config.tokenizer_name)
+    tokenizer.padding_side = "left"
     teacher_model = AutoModelForCausalLM.from_pretrained(
         config.teacher_model_name,
         torch_dtype=torch.bfloat16,
@@ -172,9 +173,9 @@ def generate_synthetic_dataset(
                 break
             processed_examples += 1
             try:
-                input_ids = torch.tensor(example["input_ids"])
-                attention_mask = torch.tensor(example["attention_mask"])
-                existing_labels = torch.tensor(example["labels"])
+                input_ids = example["input_ids"]
+                attention_mask = example["attention_mask"]
+                existing_labels = example["labels"]
 
                 response_tokens = (existing_labels != -100).nonzero(as_tuple=True)[0]
                 if len(response_tokens) == 0:
