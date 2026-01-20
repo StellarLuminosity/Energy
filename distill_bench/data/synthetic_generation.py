@@ -22,7 +22,7 @@ def generate_synthetic_dataset(
     config: Config,
     energy_tracker: Optional[EnergyTracker] = None,
     stage_name: str = "synthetic dataset teacher generation (sft)",
-) -> datasets.DatasetDict:
+    ) -> datasets.DatasetDict:
     """
     Generate synthetic dataset using teacher model.
     Args:
@@ -42,7 +42,6 @@ def generate_synthetic_dataset(
     generation_batch_size = gen_config.get("batch_size", 1)
 
     max_seq_len = getattr(config, "max_sequence_length", None) or config.get("data.max_sequence_length", 2048)
-    synthetic_path = config.get("synthetic_data.synthetic_dataset_path")
     dataset_path = config.dataset_path or config.get("data.dataset_path")
     dataset_name = config.dataset_name or config.get("data.dataset_name")
 
@@ -240,10 +239,10 @@ def generate_synthetic_dataset(
     )
 
     # Save if path specified
-    if synthetic_path:
-        os.makedirs(synthetic_path, exist_ok=True)
-        split_dataset.save_to_disk(synthetic_path)
-        print(f"Saved synthetic dataset to: {synthetic_path}")
+    synthetic_path = config.get("synthetic_data.synthetic_dataset_path")
+    os.makedirs(synthetic_path, exist_ok=True)
+    split_dataset.save_to_disk(synthetic_path)
+    print(f"Saved synthetic dataset to: {synthetic_path}")
 
     return split_dataset
 
@@ -264,7 +263,7 @@ def run_basic_checks(
     tokenizer: AutoTokenizer,
     num_examples: int = 3,
     max_token_check_examples: int = 1000,
-) -> None:
+    ) -> None:
     """Sanity checks on the saved synthetic dataset."""
     # ---- Basic structural checks ----
     if not isinstance(split_dataset, datasets.DatasetDict):
