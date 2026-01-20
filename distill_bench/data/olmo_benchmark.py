@@ -47,6 +47,7 @@ def _maybe_convert_checkpoint_to_hf(
     run_dir: Path,
     subdir_name: str = "hf_from_checkpoint",
 ) -> str:
+    benchmark_name = config.benchmark_name or "olmo_benchmark"
     """
     If model_spec is a .pt checkpoint file, load the base student model,
     apply the checkpoint weights, and save a HF-format model into
@@ -76,7 +77,6 @@ def _maybe_convert_checkpoint_to_hf(
         return str(hf_dir)
 
     hf_dir.mkdir(parents=True, exist_ok=True)
-    benchmark_name = config.benchmark_name
 
     print(f"[{benchmark_name}] Converting checkpoint to HF format:")
     print(f"  base model: {base_model_name}")
@@ -137,7 +137,7 @@ def main():
     parser.add_argument(
         "--eval-stage-name",
         type=str,
-        default=config.benchmark_name,
+        default="olmo_benchmark",
         help="Name for the EnergyTracker stage (default: olmo_benchmark).",
     )
 
@@ -149,6 +149,7 @@ def main():
 
     # Resolve where this benchmark should write its logs and results
     run_dir = _resolve_benchmark_run_dir(config, args.run_dir)
+    eval_stage_name = args.eval_stage_name or config.benchmark_name or "olmo_benchmark"
 
     # Decide which model to evaluate
     model_str = getattr(config, "benchmark_model", None)
@@ -200,7 +201,7 @@ def main():
 
     returncode = 1
     try:
-        tracker.start_stage(args.eval_stage_name)
+        tracker.start_stage(eval_stage_name)
         # EnergyTracker will still record GPU/CPU energy even without token counts.
         result = subprocess.run(cmd, check=False, cwd=str(run_dir))
         returncode = result.returncode

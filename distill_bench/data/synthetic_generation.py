@@ -37,7 +37,7 @@ def generate_synthetic_dataset(
     gen_config = config.get("synthetic_data.generation", {})
     temperature = gen_config.get("temperature", 0.7)
     top_p = gen_config.get("top_p", 0.9)
-    max_new_tokens = gen_config.get("max_new_tokens", 512)
+    max_new_tokens = gen_config.get("max_new_tokens", 1024)
     decoding_strategy = gen_config.get("decoding_strategy", "sampling")
     generation_batch_size = gen_config.get("batch_size", 1)
 
