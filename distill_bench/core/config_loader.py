@@ -95,6 +95,7 @@ class Config:
             benchmark.get("model_name", None),
         )
         self.benchmark_tasks = benchmark.get("tasks", None)
+        self.benchmark_name = benchmark.get("subfolder_name", None)
 
         # Pipeline
         self.pipeline = self._config.get("pipeline", "kd")

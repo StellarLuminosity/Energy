@@ -12,11 +12,13 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 from distill_bench.core.config_loader import load_config
 from distill_bench.core.energy_logger import EnergyTracker
 
-# Name of this benchmark script (used for directory names)
-BENCHMARK_NAME = "olmo_benchmark"
-
-# Default Tülu-style eval suite; adjust if you want a smaller set.
-DEFAULT_TASKS = ["tulu_3_dev", "tulu_3_unseen"]
+# Fallback tasks if none are specified in config.benchmark.tasks.
+FALLBACK_TASKS = [
+    "core_9mcqa::olmes",
+    "mmlu:mc::olmes",
+    "olmo_2_generative::olmes",
+    "olmo_2_heldout::olmes",
+]
 
 
 def _resolve_benchmark_run_dir(config, run_dir_arg: str | None) -> Path:
@@ -27,16 +29,15 @@ def _resolve_benchmark_run_dir(config, run_dir_arg: str | None) -> Path:
       1. --run-dir CLI argument (if provided)
       2. config.benchmark_output_dir
       3. config.output_dir as a last fallback
-
-    The benchmark script name (BENCHMARK_NAME) is always appended.
     """
     if run_dir_arg:
         base = Path(run_dir_arg)
     else:
         base = Path(getattr(config, "benchmark_output_dir", None) or config.output_dir)
 
-    # Final run dir is: <base>/<BENCHMARK_NAME>
-    run_dir = base / BENCHMARK_NAME
+    # Final run dir is: <base>/<benchmark_name>
+    benchmark_name = config.benchmark_name
+    run_dir = base / benchmark_name
     run_dir.mkdir(parents=True, exist_ok=True)
     return run_dir
 
@@ -71,12 +72,13 @@ def _maybe_convert_checkpoint_to_hf(
     hf_dir = run_dir / subdir_name
     if hf_dir.exists():
         # Assume it has already been created in a previous run.
-        print(f"[{BENCHMARK_NAME}] Using existing HF-format dir: {hf_dir}")
+        print(f"[{benchmark_name}] Using existing HF-format dir: {hf_dir}")
         return str(hf_dir)
 
     hf_dir.mkdir(parents=True, exist_ok=True)
+    benchmark_name = config.benchmark_name
 
-    print(f"[{BENCHMARK_NAME}] Converting checkpoint to HF format:")
+    print(f"[{benchmark_name}] Converting checkpoint to HF format:")
     print(f"  base model: {base_model_name}")
     print(f"  checkpoint: {model_spec}")
     print(f"  output dir: {hf_dir}")
@@ -106,7 +108,7 @@ def _maybe_convert_checkpoint_to_hf(
     # 3) Load weights into the model
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
     if missing or unexpected:
-        print(f"[{BENCHMARK_NAME}] Warning: missing keys: {len(missing)}, unexpected keys: {len(unexpected)}")
+        print(f"[{benchmark_name}] Warning: missing keys: {len(missing)}, unexpected keys: {len(unexpected)}")
 
     # 4) Save HF-format model + tokenizer
     model.save_pretrained(hf_dir)
@@ -135,7 +137,7 @@ def main():
     parser.add_argument(
         "--eval-stage-name",
         type=str,
-        default=BENCHMARK_NAME,
+        default=config.benchmark_name,
         help="Name for the EnergyTracker stage (default: olmo_benchmark).",
     )
 
@@ -165,6 +167,9 @@ def main():
         run_dir=run_dir,
         subdir_name="hf_from_checkpoint",
     )
+    
+    tasks = getattr(config, "benchmark_tasks", None) or FALLBACK_TASKS
+    benchmark_name = config.benchmark_name
 
     # OLMES output goes into the same run_dir
     eval_output_dir = run_dir
@@ -177,20 +182,21 @@ def main():
     cmd = [
         "olmes",
         "--model",
-        model_str,
+        model_path_for_olmes,
         "--task",
-        *DEFAULT_TASKS,
+        *tasks,
         "--output-dir",
         str(eval_output_dir),
     ]
-
+    
     # Allow power users to pass extra flags directly to `olmes`
     if olmes_extra:
         cmd.extend(olmes_extra)
 
-    print(f"[{BENCHMARK_NAME}] Running model: {model_path_for_olmes}")
-    print(f"[{BENCHMARK_NAME}] Run dir: {run_dir}")
-    print(f"[{BENCHMARK_NAME}] OLMES command: {' '.join(cmd)}")
+    print(f"[{benchmark_name}] Running model: {model_path_for_olmes}")
+    print(f"[{benchmark_name}] Tasks: {tasks}")
+    print(f"[{benchmark_name}] Run dir: {run_dir}")
+    print(f"[{benchmark_name}] OLMES command: {' '.join(cmd)}")
 
     returncode = 1
     try:
@@ -199,7 +205,7 @@ def main():
         result = subprocess.run(cmd, check=False, cwd=str(run_dir))
         returncode = result.returncode
         if returncode != 0:
-            print(f"[{BENCHMARK_NAME}] OLMES exited with code {returncode}")
+            print(f"[{benchmark_name}] OLMES exited with code {returncode}")
     finally:
         tracker.end_stage()       # tokens_processed left as default 0
         tracker.save_summary()
