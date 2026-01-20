@@ -24,6 +24,8 @@ SFT:
 DPO:
 - Env metadata, checkpoints, and model: /scratch/klambert/model_log/energy_experiments/dpo_32b_to_1b
 
+!! Move the energy logs from the trillium cluster into the home directory !!
+
 What still needs to be coded:
 [X] Copy configs
 [X] test the KD pipeline

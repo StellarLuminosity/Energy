@@ -1,6 +1,5 @@
 #!/bin/bash
 #SBATCH --job-name=sft_1b_distill
-#SBATCH --exclusive
 #SBATCH --output=/scratch/klambert/run_logs/%x_%j.out                
 #SBATCH --error=/scratch/klambert/run_logs/%x_%j.err                                            
 #SBATCH --partition=compute
@@ -16,9 +15,6 @@
 # CPU-only:      srun -c 16 --partition=gpubase_h100_b1 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
 # Example override of run_dir:
 #   bash run_pipeline.sh configs/experiments/dpo_32b_to_1b.yaml --run-dir /tmp/my_run
-
-set -e
-set -x
 
 # Get config path and extra args
 CONFIG_PATH=${1:-"configs/experiments/sft_32b_to_1b.yaml"}
@@ -46,10 +42,17 @@ export MKL_NUM_THREADS="$OMP_NUM_THREADS"
 export OPENBLAS_NUM_THREADS="$OMP_NUM_THREADS"
 export NUMEXPR_NUM_THREADS="$OMP_NUM_THREADS"
 
+# Huggingface Settings:
+export HF_HOME=/scratch/klambert/hf_cache
+export HF_DATASETS_OFFLINE=1
+export HF_HUB_OFFLINE=1
+export TRANSFORMERS_OFFLINE=1
+
 # Memory optimization
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # Load modules
+module load StdEnv/2023
 module load gcc python/3.11 arrow/21
 source /home/klambert/.venv/bin/activate
 

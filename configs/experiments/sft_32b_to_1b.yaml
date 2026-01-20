@@ -6,7 +6,7 @@ pipeline: "sft"
 
 # Experiment identification
 experiment:
-  name: "synthetic_tulu" # "sft_olmo2_32b_to_1b"
+  name: "synthetic_tulu_generation" # "sft_olmo2_32b_to_1b"
   description: "Data distillation: 32B teacher generates data, 1B student learns via SFT"
 
 # Models
