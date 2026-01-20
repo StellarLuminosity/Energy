@@ -62,8 +62,13 @@ def generate_synthetic_dataset(
     teacher_model = AutoModelForCausalLM.from_pretrained(
         config.teacher_model_name,
         torch_dtype=torch.bfloat16,
-    ).to(device)
+        device_map="cuda",
+    )
     teacher_model.eval()
+    teacher_model.eval()
+    teacher_model.requires_grad_(False)
+
+    teacher_model.config.use_cache = True
 
     print(f"Loading preprocessed prompt dataset from: {dataset_path}")
     prompt_dataset = datasets.load_from_disk(dataset_path)
@@ -87,6 +92,7 @@ def generate_synthetic_dataset(
 
     base_generation_kwargs = {
         "pad_token_id": pad_token_id,
+        "eos_token_id": tokenizer.eos_token_id,
         "do_sample": decoding_strategy == "sampling",
     }
     if decoding_strategy == "sampling":
