@@ -6,7 +6,7 @@ pipeline: "kd"
 
 # Experiment identification
 experiment:
-  name: "1B_benchmark" # "kd_olmo2_32b_to_1b"
+  name: "32B_benchmark" # "kd_olmo2_32b_to_1b"
   description: "Logit KD from 32B to 1B with top-100 cached teacher logprobs"
 
 # Models

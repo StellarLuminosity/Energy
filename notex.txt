@@ -37,11 +37,22 @@ What still needs to be coded:
 [X] SFT: update synthetic data generation to handle those datasets
 [X] Test the synthetic generation script
 [X] test the SFT main pipeline
+[] Launch the SFT pipeline for 
+    [] 1b 
+    [] 7b
+    [] 13b
+[] benchmark the raw and trained the models after experiments
+[] update the notes document
+[] update and finalize the outline for ICML - email Sasha to confirm
+[] compare energy metrics for KD and aggregate them for the paper
+[] launch SFT runs
+[] run benchmarking on SFT models
+[] aggregate energy experiments for SFT models
+[] test the DPO preference dataset generation script
 [] run the dpo preprocessing pipeline
-[] TEST ALL THE PIPELINES AND SET UP RUNS SO THAT THEY RUN IN PARALLEL
-
-Things to fix:
-[] training logging for the KD pipeline
+[] run the dpo pipeline
+[] accumulate and add logs for the paper
 
 What still need to be done:
 [] unadd configs folder from the .gitignore
+
