@@ -11,7 +11,7 @@ import time
 import torch
 import wandb
 from datetime import datetime
-from transformers import AutoModelForCausalLM, AutoTokenizer, get_cosine_schedule_with_warmup
+from transformers import AutoModelForCausalLM, get_cosine_schedule_with_warmup
 from tqdm.auto import tqdm
 
 from distill_bench.core.config_loader import load_config
@@ -61,6 +61,7 @@ def train_epoch(
     global_step,
     recent_eval_losses,
     min_eval_loss,
+    debug_batch_counter,
 ):
     """Train for one epoch with periodic evaluation and early stopping."""
     model.train()
@@ -74,6 +75,7 @@ def train_epoch(
     for step, batch in enumerate(progress_bar):
         loss = compute_sft_loss(model, batch, device)
         batches_processed += 1
+        debug_batch_counter += 1
 
         # Count exact non-padding tokens
         labels = batch["labels"].to(device)
@@ -136,12 +138,19 @@ def train_epoch(
         progress_bar.set_postfix({"loss": f"{loss.item():.4f}"})
 
         # Debug mode early exit
+        if config.debug_mode and debug_batch_counter >= config.debug_max_steps:
+            main_print(
+                f"[DEBUG MODE] Reached debug_max_steps={config.debug_max_steps} batches; stopping at batch_count={debug_batch_counter}"
+            )
+            break
         if config.debug_mode and global_step >= config.debug_max_steps:
-            main_print(f"[DEBUG MODE] Stopping at {global_step} steps")
+            main_print(
+                f"[DEBUG MODE] Reached debug_max_steps={config.debug_max_steps}; stopping at global_step={global_step}"
+            )
             break
 
     avg_loss = total_loss / batches_processed if batches_processed > 0 else 0.0
-    return avg_loss, global_step, total_tokens, should_stop, min_eval_loss, recent_eval_losses
+    return avg_loss, global_step, total_tokens, should_stop, min_eval_loss, recent_eval_losses, debug_batch_counter
 
 
 def eval_model(model, eval_loader, device):
@@ -158,7 +167,6 @@ def eval_model(model, eval_loader, device):
 
     avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
     return avg_loss
-
 
 def main(args):
     """Main SFT training pipeline."""
@@ -219,14 +227,14 @@ def main(args):
         )
 
     # Load or generate synthetic dataset
-    main_print("Loading/generating synthetic dataset...")
-    if energy_tracker:
-        energy_tracker.start_stage("teacher_generation")
+    main_print("Loading synthetic dataset...")
+    synthetic_dataset = load_synthetic_dataset(config)
 
-    synthetic_dataset = load_synthetic_dataset(config, energy_tracker)
-
-    if energy_tracker and energy_tracker.current_stage:
-        energy_tracker.end_stage()
+    if synthetic_dataset is None:
+        raise FileNotFoundError(
+            f"Synthetic dataset not found at {config.get('synthetic_data.synthetic_dataset_path')}. "
+            "Generate the dataset before running."
+        )
 
     main_print(f"Synthetic dataset: {len(synthetic_dataset['train'])} train, {len(synthetic_dataset['test'])} eval")
 
@@ -268,12 +276,13 @@ def main(args):
     global_step = 0
     min_eval_loss = float("inf")
     recent_eval_losses = []
+    debug_batch_counter = 0
 
     for epoch in range(config.num_epochs):
         main_print(f"\nEpoch {epoch}/{config.num_epochs-1}")
 
         # Train
-        train_loss, global_step, epoch_tokens, stop_early, min_eval_loss, recent_eval_losses = train_epoch(
+        train_loss, global_step, epoch_tokens, stop_early, min_eval_loss, recent_eval_losses, debug_batch_counter = train_epoch(
             model,
             train_loader,
             eval_loader,
@@ -287,6 +296,7 @@ def main(args):
             global_step,
             recent_eval_losses,
             min_eval_loss,
+            debug_batch_counter,
         )
 
         total_tokens_processed += epoch_tokens
@@ -329,6 +339,9 @@ def main(args):
     total_time = time.time() - start_time
     main_print(f"\nTraining completed in {total_time/3600:.2f} hours")
     main_print(f"Total tokens processed: {total_tokens_processed:,}")
+
+    if config.debug_mode:
+        main_print(f"[DEBUG MODE] Pipeline test complete after debug_max_steps={config.debug_max_steps} steps")
 
     if energy_tracker:
         summary_file = energy_tracker.save_summary()
