@@ -7,6 +7,7 @@ supervised fine-tuning (cross-entropy loss only, no KD).
 
 import argparse
 import os
+import pdb
 import time
 import torch
 import wandb
@@ -229,13 +230,6 @@ def main(args):
     # Load or generate synthetic dataset
     main_print("Loading synthetic dataset...")
     synthetic_dataset = load_synthetic_dataset(config)
-
-    if synthetic_dataset is None:
-        raise FileNotFoundError(
-            f"Synthetic dataset not found at {config.get('synthetic_data.synthetic_dataset_path')}. "
-            "Generate the dataset before running."
-        )
-
     main_print(f"Synthetic dataset: {len(synthetic_dataset['train'])} train, {len(synthetic_dataset['test'])} eval")
 
     # Prepare dataloaders
@@ -249,7 +243,7 @@ def main(args):
     main_print(f"Loading student model: {config.student_model_name}")
     model = AutoModelForCausalLM.from_pretrained(
         config.student_model_name,
-        torch_dtype=torch.bfloat16,
+        dtype=torch.bfloat16,
     ).to(device)
     
     model.gradient_checkpointing_enable()
