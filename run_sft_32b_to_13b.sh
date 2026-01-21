@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=sft_13b_distill
+#SBATCH --job-name=sft_synthetic_codeforces_generation
 #SBATCH --output=/scratch/klambert/run_logs/%x_%j.out                
 #SBATCH --error=/scratch/klambert/run_logs/%x_%j.err                                            
 #SBATCH --partition=compute
@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --export=NONE
 #SBATCH --account=def-lylan                                
-#SBATCH --time=9:00:00
+#SBATCH --time=16:00:00
 
 # Unified experiment launcher for KD/SFT/DPO pipelines (single-GPU)
 # 1 H100:        srun -c 16 --gres=gpu:h100:1 --partition=gpubase_h100_b5 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
@@ -53,6 +53,12 @@ export TRANSFORMERS_OFFLINE=1
 
 # Memory optimization
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
+
+# wandb settings
+export WANDB_MODE=offline
+export WANDB_DIR=$SCRATCH/wandb
+mkdir -p "$WANDB_DIR"
+export WANDB_PROJECT="${WANDB_PROJECT:-$SLURM_JOB_NAME}"
 
 # Load modules
 module load StdEnv/2023
