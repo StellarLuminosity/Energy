@@ -85,7 +85,11 @@ def _maybe_convert_checkpoint_to_hf(
 
     # 1) Load base HF model and tokenizer
     model = AutoModelForCausalLM.from_pretrained(base_model_name)
-    tokenizer = AutoTokenizer.from_pretrained(base_model_name)
+
+    # Prefer the global tokenizer_name from config if set; otherwise fall back to base_model_name.
+    tokenizer_id = getattr(config, "tokenizer_name", None) or base_model_name
+    print(f"[{benchmark_name}] Using tokenizer: {tokenizer_id}")
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_id)
 
     # 2) Load checkpoint
     ckpt = torch.load(model_spec, map_location="cpu")
