@@ -41,82 +41,162 @@ def _resolve_benchmark_run_dir(config, run_dir_arg: str | None) -> Path:
     run_dir.mkdir(parents=True, exist_ok=True)
     return run_dir
 
+
+
 def _maybe_convert_checkpoint_to_hf(
     model_spec: str,
     config,
     run_dir: Path,
     subdir_name: str = "hf_from_checkpoint",
 ) -> str:
-    benchmark_name = config.benchmark_name or "olmo_benchmark"
     """
-    If model_spec is a .pt checkpoint file, load the base student model,
-    apply the checkpoint weights, and save a HF-format model into
-        <run_dir>/<subdir_name>.
-    Returns the path that should be given to OLMES as --model.
+    Normalize benchmark.model so OLMES can use it:
 
-    Otherwise, returns model_spec unchanged.
+    1) If it's a Hugging Face name like "allenai/OLMo-2-0325-32B-SFT":
+       - return the string unchanged.
+
+    2) If it's a local directory with HF-style configs (e.g.
+       ".../final_model" or ".../final_model/hf_format"):
+       - return the HF directory path (preferring "hf_format" if present),
+       - make sure tokenizer files exist there (using tokenizer from config).
+
+    3) If it's a checkpoint file (e.g. ".../checkpoint_epoch0_step26400.pt"):
+       - use benchmark.model_type from the config as the HF base model,
+       - load that HF model,
+       - load the checkpoint state dict into it,
+       - save HF-format weights + tokenizer into run_dir/subdir_name,
+       - return that directory path.
     """
-    # If it's not a file or doesn't end with .pt, just use it as-is.
-    if not os.path.isfile(model_spec) or not model_spec.endswith(".pt"):
+    benchmark_name = getattr(config, "benchmark_name", "olmo_benchmark")
+    p = Path(model_spec)
+
+    # -------------------------
+    # Case 1: pure HF name (doesn't exist as a local path)
+    # -------------------------
+    if not p.exists():
+        print(f"[{benchmark_name}] Using Hugging Face model id: {model_spec}")
         return model_spec
 
-    base_model_name = getattr(config, "student_model_name", None) or getattr(
-        config, "student_model", None
-    )
-    if not base_model_name:
-        raise ValueError(
-            "benchmark.model points to a .pt checkpoint, but no base student_model_name "
-            "is configured. Please set model.student in your YAML so we know "
-            "which architecture to load before applying the checkpoint."
-        )
+    # -------------------------
+    # Case 2: local directory (final_model / hf_format)
+    # -------------------------
+    if p.is_dir():
+        # If there is a final_model/hf_format layout, prefer hf_format
+        if (p / "hf_format" / "config.json").exists():
+            hf_dir = p / "hf_format"
+        else:
+            hf_dir = p
 
-    hf_dir = run_dir / subdir_name
-    if hf_dir.exists():
-        # Assume it has already been created in a previous run.
-        print(f"[{benchmark_name}] Using existing HF-format dir: {hf_dir}")
+        if not (hf_dir / "config.json").exists():
+            raise ValueError(
+                f"[{benchmark_name}] Directory '{hf_dir}' does not look like a "
+                f"Hugging Face model (config.json missing)."
+            )
+
+        # Ensure tokenizer files exist in this dir, using the tokenizer from config.
+        tokenizer_marker_files = [
+            "tokenizer.json",
+            "tokenizer_config.json",
+            "vocab.json",
+            "merges.txt",
+            "spiece.model",
+        ]
+        has_tokenizer = any((hf_dir / f).exists() for f in tokenizer_marker_files)
+
+        if not has_tokenizer:
+            tokenizer_id = (
+                getattr(config, "tokenizer_name", None)
+                or getattr(config, "data_tokenizer_name", None)
+            )
+            if not tokenizer_id:
+                raise ValueError(
+                    f"[{benchmark_name}] Need tokenizer_name in config (e.g. "
+                    f"data.tokenizer_name in base.yaml) to populate tokenizer "
+                    f"files for directory '{hf_dir}'."
+                )
+
+            print(
+                f"[{benchmark_name}] No tokenizer files in {hf_dir}, "
+                f"saving tokenizer '{tokenizer_id}' there."
+            )
+            tokenizer = AutoTokenizer.from_pretrained(tokenizer_id)
+            tokenizer.save_pretrained(hf_dir)
+
+        print(f"[{benchmark_name}] Using local HF directory: {hf_dir}")
         return str(hf_dir)
 
-    hf_dir.mkdir(parents=True, exist_ok=True)
+    # -------------------------
+    # Case 3: local checkpoint file (.pt / .bin)
+    # -------------------------
+    if p.suffix not in {".pt", ".bin"}:
+        raise ValueError(
+            f"[{benchmark_name}] benchmark.model points to file '{p}', but "
+            f"extension '{p.suffix}' is not a recognized checkpoint type."
+        )
 
-    print(f"[{benchmark_name}] Converting checkpoint to HF format:")
-    print(f"  base model: {base_model_name}")
-    print(f"  checkpoint: {model_spec}")
-    print(f"  output dir: {hf_dir}")
+    base_model_id = getattr(config, "benchmark_model_type", None)
+    if not base_model_id:
+        raise ValueError(
+            f"[{benchmark_name}] benchmark.model is a checkpoint, so you must "
+            f"set benchmark.model_type in the config to a Hugging Face model id "
+            f"(e.g. 'allenai/OLMo-2-1124-7B-SFT')."
+        )
 
-    # 1) Load base HF model and tokenizer
-    model = AutoModelForCausalLM.from_pretrained(base_model_name)
+    print(
+        f"[{benchmark_name}] Converting checkpoint '{p}' using base model "
+        f"'{base_model_id}'"
+    )
 
-    # Prefer the global tokenizer_name from config if set; otherwise fall back to base_model_name.
-    tokenizer_id = getattr(config, "tokenizer_name", None) or base_model_name
-    print(f"[{benchmark_name}] Using tokenizer: {tokenizer_id}")
-    tokenizer = AutoTokenizer.from_pretrained(tokenizer_id)
+    # 1. Load base HF model
+    model = AutoModelForCausalLM.from_pretrained(base_model_id)
 
-    # 2) Load checkpoint
-    ckpt = torch.load(model_spec, map_location="cpu")
-
-    # Try a few common keys; adjust here if your training script uses a different layout.
+    # 2. Load checkpoint and extract state dict
+    ckpt = torch.load(p, map_location="cpu")
     if isinstance(ckpt, dict):
         if "model_state_dict" in ckpt:
             state_dict = ckpt["model_state_dict"]
         elif "state_dict" in ckpt:
             state_dict = ckpt["state_dict"]
+        elif "model" in ckpt and isinstance(ckpt["model"], dict):
+            state_dict = ckpt["model"]
         else:
-            # If it looks like a plain state dict, just use it directly
+            # Common pattern: torch.save(model.state_dict())
             state_dict = ckpt
     else:
         raise ValueError(
-            f"Checkpoint file {model_spec} is not a dict. "
-            "Please adjust _maybe_convert_checkpoint_to_hf to match your checkpoint format."
+            f"[{benchmark_name}] Expected checkpoint '{p}' to be a dict, "
+            f"got type {type(ckpt)}."
         )
 
-    # 3) Load weights into the model
     missing, unexpected = model.load_state_dict(state_dict, strict=False)
-    if missing or unexpected:
-        print(f"[{benchmark_name}] Warning: missing keys: {len(missing)}, unexpected keys: {len(unexpected)}")
+    if missing:
+        print(
+            f"[{benchmark_name}] Missing keys when loading checkpoint "
+            f"({len(missing)}), first few: {missing[:5]}"
+        )
+    if unexpected:
+        print(
+            f"[{benchmark_name}] Unexpected keys in checkpoint "
+            f"({len(unexpected)}), first few: {unexpected[:5]}"
+        )
 
-    # 4) Save HF-format model + tokenizer
-    model.save_pretrained(hf_dir)
+    # 3. Save HF-format model + tokenizer to run_dir/subdir_name
+    hf_dir = run_dir / subdir_name
+    hf_dir.mkdir(parents=True, exist_ok=True)
+
+    tokenizer_id = (
+        getattr(config, "tokenizer_name", None)
+        or getattr(config, "data_tokenizer_name", None)
+        or base_model_id
+    )
+
+    print(
+        f"[{benchmark_name}] Saving HF model + tokenizer to {hf_dir} "
+        f"(tokenizer='{tokenizer_id}')"
+    )
+    tokenizer = AutoTokenizer.from_pretrained(tokenizer_id)
     tokenizer.save_pretrained(hf_dir)
+    model.save_pretrained(hf_dir)
 
     return str(hf_dir)
 
