@@ -134,7 +134,7 @@ def _maybe_convert_checkpoint_to_hf(
             f"extension '{p.suffix}' is not a recognized checkpoint type."
         )
 
-    base_model_id = getattr(config, "benchmark_model_type", None)
+    base_model_id = config.model_type
     if not base_model_id:
         raise ValueError(
             f"[{benchmark_name}] benchmark.model is a checkpoint, so you must "

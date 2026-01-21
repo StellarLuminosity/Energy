@@ -90,6 +90,7 @@ class Config:
         # Benchmark / evaluation
         benchmark = self._config.get("benchmark", {})
         self.benchmark_output_dir = benchmark.get("output_dir", self.output_dir)
+        self.model_type = benchmark.get("model_type", self.output_dir)
         self.benchmark_model = benchmark.get(
             "model",
             benchmark.get("model_name", None),
