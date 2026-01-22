@@ -243,7 +243,7 @@ def main(args):
     main_print(f"Loading student model: {config.student_model_name}")
     model = AutoModelForCausalLM.from_pretrained(
         config.student_model_name,
-        dtype=torch.bfloat16,
+        torch_dtype=torch.bfloat16,
     ).to(device)
     
     model.gradient_checkpointing_enable()

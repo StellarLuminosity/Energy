@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=sft_synthetic_math_generation
+#SBATCH --job-name=sft_tulu_32b_to_7b
 #SBATCH --output=/scratch/klambert/run_logs/%x_%j.out                
 #SBATCH --error=/scratch/klambert/run_logs/%x_%j.err                                            
 #SBATCH --partition=compute
