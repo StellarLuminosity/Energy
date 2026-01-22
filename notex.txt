@@ -38,7 +38,7 @@ What still needs to be coded:
 [X] Test the synthetic generation script
 [X] test the SFT main pipeline
 [] Launch the SFT pipeline for 
-    [] 1b 
+    [] 1b
     [] 7b
     [] 13b
 [] benchmark the raw and trained the models after experiments

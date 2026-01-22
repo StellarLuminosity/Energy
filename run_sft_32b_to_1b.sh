@@ -1,5 +1,5 @@
 #!/bin/bash
-#SBATCH --job-name=sft_synthetic_tulu_generation
+#SBATCH --job-name=sft_tulu_32b_to_1b
 #SBATCH --output=/scratch/klambert/run_logs/%x_%j.out                
 #SBATCH --error=/scratch/klambert/run_logs/%x_%j.err                                            
 #SBATCH --partition=compute
@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --export=NONE
 #SBATCH --account=def-lylan                                
-#SBATCH --time=16:00:00
+#SBATCH --time=20:00:00
 
 # Unified experiment launcher for KD/SFT/DPO pipelines (single-GPU)
 # 1 H100:        srun -c 16 --gres=gpu:h100:1 --partition=gpubase_h100_b5 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
