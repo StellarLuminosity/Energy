@@ -12,7 +12,7 @@ experiment:
 # Models
 model:
   teacher: "allenai/OLMo-2-0325-32B-SFT"
-  student: "allenai/OLMo-2-1124-7B-SFT"
+  student: "allenai/OLMo-2-1124-7B"
   student_vocab_size: 100352
 
 # Data (KD uses cached teacher logits)

@@ -6,13 +6,13 @@ pipeline: "sft"
 
 # Experiment identification
 experiment:
-  name: "sft_32b_to_1b_tulu"
+  name: "sft_32b_to_1b_tulu_nosft"
   description: "Data distillation: 32B teacher generates data, 1B student learns via SFT"
 
 # Models
 model:
   teacher: "allenai/OLMo-2-0325-32B-SFT"
-  student: "allenai/OLMo-2-0425-1B-SFT"
+  student: "allenai/OLMo-2-0425-1B"
   student_vocab_size: 100352
 
 # Dataset selection
@@ -48,8 +48,8 @@ synthetic_data:
 
 # Output
 output:
-  output_dir: "/scratch/klambert/model_log/energy_experiments/sft_32b_to_1b/tulu_generation"
+  output_dir: "/scratch/klambert/model_log/energy_experiments/sft_32b_to_1b_nosft/"
 
 # W&B override
 wandb:
-  run_name: "sft_32b_to_1b_tulu"
+  run_name: "sft_32b_to_1b_tulu_nosft"
