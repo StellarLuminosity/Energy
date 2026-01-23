@@ -33,8 +33,8 @@ distillation:
 
 # Output
 output:
-  output_dir: "/scratch/klambert/model_log/energy_experiments/kd_32b_to_13b"
+  output_dir: "/scratch/klambert/model_log/energy_experiments/kd_32b_to_13b_nosft"
 
 # W&B override
 wandb:
-  run_name: "kd_32b_to_13b_alpha0.5_temp1.0"
+  run_name: "kd_32b_to_13b_nosft"

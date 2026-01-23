@@ -6,7 +6,7 @@ pipeline: "kd"
 
 # Experiment identification
 experiment:
-  name: "32B_benchmark" # "kd_olmo2_32b_to_1b"
+  name: "kd_olmo2_32b_to_1b_nosft"
   description: "Logit KD from 32B to 1B with top-100 cached teacher logprobs"
 
 # Models
@@ -33,8 +33,8 @@ distillation:
 
 # Output
 output:
-  output_dir: "/scratch/klambert/model_log/energy_experiments/kd_32b_to_1b"
+  output_dir: "/scratch/klambert/model_log/energy_experiments/kd_32b_to_1b_nosft"
 
 # W&B override
 wandb:
-  run_name: "kd_32b_to_1b_alpha0.5_temp1.0"
+  run_name: "kd_32b_to_1b_nosft"
