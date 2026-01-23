@@ -1,0 +1,54 @@
+{
+  "hostname": "kn171",
+  "gpus": [
+    {
+      "index": 0,
+      "name": "NVIDIA H100 80GB HBM3",
+      "memory_total_mb": 81559.0,
+      "memory_free_mb": 54403.0,
+      "driver_version": "570.148.08",
+      "cuda_version": "12.8",
+      "compute_capability": "9.0",
+      "power_limit_watts": 700.0
+    }
+  ],
+  "cpu": {
+    "brand": "Intel(R) Xeon(R) Gold 6442Y",
+    "architecture": "x86_64",
+    "physical_cores": 48,
+    "logical_cores": 48,
+    "max_frequency_mhz": 4000.0,
+    "current_frequency_mhz": 1099.8341666666668
+  },
+  "memory": {
+    "total_gb": 2015.4003562927246,
+    "available_gb": 1983.7029914855957,
+    "used_gb": 31.697364807128906,
+    "percent_used": 1.6
+  },
+  "software": {
+    "python_version": "3.10.13",
+    "pytorch_version": "2.8.0+cu128",
+    "cuda_version": "12.8",
+    "cudnn_version": "91002",
+    "transformers_version": "4.56.2",
+    "platform": "Linux",
+    "os_version": "6.8.0-54-generic"
+  },
+  "git_info": {
+    "commit_hash": "dbd96fbd84080a6661e6e93ccd363bd3084550fe",
+    "branch": "main",
+    "is_dirty": true,
+    "remote_url": "https://github.com/StellarLuminosity/Energy.git"
+  },
+  "slurm_info": {
+    "job_id": "1949861",
+    "job_name": "nosft_kd_distill_13b",
+    "node_name": "kn171",
+    "partition": "gpubase_h100_b5",
+    "num_nodes": "1",
+    "cpus_per_task": "16",
+    "gpus": "1",
+    "mem_per_node": "122880"
+  }
+}

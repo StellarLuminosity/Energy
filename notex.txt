@@ -41,8 +41,9 @@ What still needs to be coded:
     [] 1b
     [] 7b
     [] 13b
-[] benchmark the raw and trained the models after experiments
-[] update the notes document
+[] Write proper benchmarking and plotting scripts
+[] benchmark KD
+[] benchmark SFT
 [] update and finalize the outline for ICML - email Sasha to confirm
 [] compare energy metrics for KD and aggregate them for the paper
 [] launch SFT runs
