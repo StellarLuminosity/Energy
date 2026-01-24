@@ -30,12 +30,12 @@ distillation:
   # Logit caching settings (already done, for reference)
   top_k_logits: 100  # Top-100 cached teacher logits
   logprob_cache_path: "/scratch/klambert/dataset/logprob_cache"
-  resume_from_checkpoint: false
 
 # Output
 output:
   output_dir: "/scratch/klambert/model_log/energy_experiments/kd_32b_to_13b_nosft"
   checkpoint_dir: None
+  resume_from_checkpoint: false
 
 # W&B override
 wandb:

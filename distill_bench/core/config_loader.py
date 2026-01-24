@@ -87,6 +87,7 @@ class Config:
         self.output_run_dir = output.get("run_dir", None)
         self.output_checkpoint_dir = output.get("checkpoint_dir", None)
         self.checkpoint_dir = self.output_checkpoint_dir
+        self.output_resume_from_checkpoint = output.get("resume_from_checkpoint", False)
 
         # Benchmark / evaluation
         benchmark = self._config.get("benchmark", {})
@@ -109,11 +110,6 @@ class Config:
         self.temperature = distill.get("temperature", 1.0)
         self.logprob_cache_path = distill.get("logprob_cache_path", "")
         self.top_k_logits = distill.get("top_k_logits", None)
-        # Resume flag now lives under distillation for KD configs; fallback to training if present.
-        self.resume_from_checkpoint = distill.get(
-            "resume_from_checkpoint",
-            training.get("resume_from_checkpoint", False),
-        )
 
         # Synthetic data (SFT-specific)
         synth = self._config.get("synthetic_data", {})

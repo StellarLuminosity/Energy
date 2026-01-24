@@ -50,6 +50,8 @@ synthetic_data:
 # Output
 output:
   output_dir: "/scratch/klambert/model_log/energy_experiments/sft_32b_to_13b_nosft/"
+  checkpoint_dir: None
+  resume_from_checkpoint: false
 
 # W&B override
 wandb:
