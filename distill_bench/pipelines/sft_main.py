@@ -55,6 +55,7 @@ def train_epoch(
     eval_loader,
     optimizer,
     lr_scheduler,
+    checkpointer,
     device,
     epoch,
     config,
@@ -106,6 +107,22 @@ def train_epoch(
                 )
 
             global_step += 1
+
+            # Periodic checkpointing
+            if (
+                checkpointer is not None
+                and not config.debug_mode
+                and global_step > 0
+                and global_step % config.save_steps == 0
+            ):
+                checkpointer.save(
+                    model,
+                    optimizer,
+                    lr_scheduler,
+                    epoch=epoch,
+                    global_step=global_step,
+                    loss=loss.item(),
+                )
 
             # Periodic evaluation
             if global_step > 0 and global_step % eval_steps == 0:
@@ -322,6 +339,7 @@ def main(args):
             eval_loader,
             optimizer,
             lr_scheduler,
+            checkpointer,
             device,
             epoch,
             config,
