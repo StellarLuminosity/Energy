@@ -167,6 +167,8 @@ def eval_model(model, eval_loader, device):
             num_batches += 1
 
     avg_loss = total_loss / num_batches if num_batches > 0 else 0.0
+    
+    torch.cuda.empty_cache()
     return avg_loss
 
 def main(args):
@@ -251,11 +253,30 @@ def main(args):
         model.config.use_cache = False
 
     # Optimizer and scheduler
-    optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
+    opt_name = getattr(config, "optimizer", "adamw").lower()
 
-    num_training_steps = len(train_loader) * config.num_epochs if config.num_training_steps == 0 else config.num_training_steps
+    if opt_name == "adafactor":
+        from transformers.optimization import Adafactor
+        optimizer = Adafactor(
+            model.parameters(),
+            lr=config.learning_rate,
+            scale_parameter=False,   # we use an explicit LR schedule
+            relative_step=False,     # disable Adafactor’s built-in LR
+            warmup_init=False,
+        )
+    else:
+        optimizer = torch.optim.AdamW(model.parameters(), lr=config.learning_rate)
+
+    num_training_steps = (
+        len(train_loader) * config.num_epochs
+        if config.num_training_steps == 0
+        else config.num_training_steps
+    )
+
     lr_scheduler = get_cosine_schedule_with_warmup(
-        optimizer, num_warmup_steps=config.num_warmup_steps, num_training_steps=num_training_steps
+        optimizer,
+        num_warmup_steps=config.num_warmup_steps,
+        num_training_steps=num_training_steps,
     )
 
     # Training loop
