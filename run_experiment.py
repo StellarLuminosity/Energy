@@ -2,7 +2,7 @@
 """
 Unified experiment launcher for distillation pipelines.
 
-Dispatches to KD/SFT/DPO based on config.pipeline field.
+Dispatches to KD/SFT based on config.pipeline field.
 """
 
 import argparse
@@ -86,14 +86,9 @@ def main():
 
         sft_main.main(args)
 
-    elif pipeline == "dpo":
-        from distill_bench.pipelines import dpo_main
-
-        dpo_main.main(args)
-
     else:
         print(f"Error: Unknown pipeline type '{pipeline}'")
-        print(f"Expected one of: kd, sft, dpo")
+        print(f"Expected one of: kd, sft")
         sys.exit(1)
 
 
