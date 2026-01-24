@@ -37,10 +37,10 @@ What still needs to be coded:
 [X] SFT: update synthetic data generation to handle those datasets
 [X] Test the synthetic generation script
 [X] test the SFT main pipeline
-[] Launch the SFT pipeline for 
-    [] 1b
-    [] 7b
-    [] 13b
+[X] Launch the SFT pipeline for 
+    [X] 1b
+    [X] 7b
+    [X] 13b
 [] Write proper benchmarking and plotting scripts
 [] benchmark KD
 [] benchmark SFT
