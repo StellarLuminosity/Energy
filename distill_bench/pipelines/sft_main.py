@@ -20,6 +20,7 @@ from distill_bench.core.energy_logger import EnergyTracker
 from distill_bench.core.environment import collect_environment
 from distill_bench.core.utils import prepare_dataset, is_main_process, main_print, fix_seed
 from distill_bench.data.synthetic_generation import load_synthetic_dataset
+from distill_bench.core.checkpoint import SimpleCheckpointer
 
 
 def compute_sft_loss(model, batch, device):
@@ -279,6 +280,25 @@ def main(args):
         num_training_steps=num_training_steps,
     )
 
+    # Checkpointer setup (save to output_dir/checkpoints)
+    checkpointer = SimpleCheckpointer(config.output_dir)
+
+    # Resume from checkpoint if configured
+    start_epoch = 0
+    global_step = 0
+    if getattr(config, "resume_from_checkpoint", False):
+        resume_checkpoint_path = getattr(config, "output_checkpoint_dir", None) or getattr(config, "checkpoint_dir", None)
+        checkpoint_data = checkpointer.load(
+            model,
+            optimizer,
+            lr_scheduler,
+            checkpoint_path=resume_checkpoint_path,
+        )
+        if checkpoint_data:
+            start_epoch = checkpoint_data.get("epoch", 0) + 1
+            global_step = checkpoint_data.get("global_step", 0)
+            main_print(f"Resumed from epoch {start_epoch-1}, step {global_step}")
+
     # Training loop
     main_print("\n" + "=" * 50)
     main_print("Starting Training")
@@ -288,12 +308,11 @@ def main(args):
         energy_tracker.start_stage("student_train")
 
     total_tokens_processed = 0
-    global_step = 0
     min_eval_loss = float("inf")
     recent_eval_losses = []
     debug_batch_counter = 0
 
-    for epoch in range(config.num_epochs):
+    for epoch in range(start_epoch, config.num_epochs):
         main_print(f"\nEpoch {epoch}/{config.num_epochs-1}")
 
         # Train
@@ -339,6 +358,16 @@ def main(args):
 
         if config.debug_mode:
             break
+
+        # Save checkpoint at end of epoch
+        checkpointer.save(
+            model,
+            optimizer,
+            lr_scheduler,
+            epoch=epoch,
+            global_step=global_step,
+            loss=eval_loss,
+        )
 
     if energy_tracker:
         energy_tracker.end_stage(tokens_processed=total_tokens_processed)

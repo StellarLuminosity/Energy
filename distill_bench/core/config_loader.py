@@ -129,24 +129,6 @@ class Config:
         self.synthetic_dataset_path = synth.get("synthetic_dataset_path", None)
         self.synthetic_use_existing = synth.get("use_existing", None)
 
-        # DPO-specific
-        dpo = self._config.get("dpo", {})
-        self.dpo_beta = dpo.get("beta", 0.1)
-        self.preference_dataset_path = dpo.get("preference_dataset_path", "")
-        judge_cfg = dpo.get("judge_labeling", {})
-        self.dpo_judge_enabled = judge_cfg.get("enabled", False)
-        self.dpo_judge_temperature = judge_cfg.get("temperature", 0.7)
-        if self.pipeline == "dpo":
-            # Only override the main temperature when actually running the DPO pipeline.
-            self.temperature = self.dpo_judge_temperature
-        self.dpo_judge_top_p = judge_cfg.get("top_p", None)
-        self.dpo_judge_max_new_tokens = judge_cfg.get("max_new_tokens", None)
-        self.dpo_scoring_method = judge_cfg.get("scoring_method", "likelihood")
-        candidate_cfg = dpo.get("candidate_generation", {})
-        self.dpo_candidate_generation_enabled = candidate_cfg.get("enabled", False)
-        self.dpo_num_candidates_per_prompt = candidate_cfg.get("num_candidates_per_prompt", 2)
-        self.dpo_candidate_temperature = candidate_cfg.get("temperature", 0.8)
-
         # W&B
         wandb = self._config.get("wandb", {})
         self.wandb_enabled = wandb.get("enabled", True)
@@ -279,7 +261,7 @@ def validate_config(config: Config) -> Dict[str, Any]:
         Dictionary with validation results
     """
     required_fields = {
-        "pipeline": ["kd", "sft", "dpo"],
+        "pipeline": ["kd", "sft"],
         "teacher_model_name": None,
         "student_model_name": None,
         "dataset_path": None,
