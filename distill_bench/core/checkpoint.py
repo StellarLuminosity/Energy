@@ -38,19 +38,30 @@ class SimpleCheckpointer:
             main_print(f"✓ Saved checkpoint to {checkpoint_path}")
             self._cleanup_old_checkpoints(keep_last=3)
     
-    def load(self, model, optimizer, lr_scheduler):
-        """Load the latest checkpoint if it exists (returns metadata or None)."""
-        checkpoints = sorted(
-            glob.glob(os.path.join(self.checkpoint_dir, "checkpoint_*.pt")),
-            key=os.path.getmtime,
-        )
-        if not checkpoints:
-            main_print("No checkpoints found.")
+    def load(self, model, optimizer, lr_scheduler, checkpoint_path: str = None):
+        """
+        Load the checkpoint at the provided path (returns metadata or None).
+
+        The previous behavior of scanning the output checkpoint directory has been
+        replaced so that resuming is deterministic and driven entirely by config.
+        """
+        if checkpoint_path is None:
+            main_print("resume_from_checkpoint enabled but no checkpoint path provided; skipping resume.")
             return None
-        
-        latest = checkpoints[-1]
-        main_print(f"Loading checkpoint from {latest}")
-        payload = torch.load(latest, map_location="cpu")
+
+        if os.path.isdir(checkpoint_path):
+            main_print(
+                f"Checkpoint path '{checkpoint_path}' is a directory; expected a file like "
+                f"'.../checkpoint_epoch0_step5000.pt'."
+            )
+            return None
+
+        if not os.path.isfile(checkpoint_path):
+            main_print(f"Checkpoint file not found: {checkpoint_path}")
+            return None
+
+        main_print(f"Loading checkpoint from {checkpoint_path}")
+        payload = torch.load(checkpoint_path, map_location="cpu")
         
         model.load_state_dict(payload["model_state_dict"])
         if optimizer and payload.get("optimizer_state_dict") is not None:

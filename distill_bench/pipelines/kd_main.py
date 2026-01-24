@@ -197,7 +197,13 @@ def main(args):
     start_epoch = 0
     global_step = 0
     if config.resume_from_checkpoint:
-        checkpoint_data = checkpointer.load(student_model, optimizer, lr_scheduler)
+        resume_checkpoint_path = getattr(config, "output_checkpoint_dir", None) or getattr(config, "checkpoint_dir", None)
+        checkpoint_data = checkpointer.load(
+            student_model,
+            optimizer,
+            lr_scheduler,
+            checkpoint_path=resume_checkpoint_path,
+        )
         if checkpoint_data:
             start_epoch = checkpoint_data.get("epoch", 0) + 1
             global_step = checkpoint_data.get("global_step", 0)
