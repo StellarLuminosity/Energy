@@ -1,12 +1,15 @@
 """
 Evaluation Benchmark Script
 """
-import os
-import torch
 import argparse
+import os
 import subprocess
 import sys
+from dataclasses import dataclass
 from pathlib import Path
+from typing import Callable, Dict, List, Optional
+
+import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from distill_bench.core.config_loader import load_config
@@ -40,6 +43,36 @@ def _resolve_benchmark_run_dir(config, run_dir_arg: str | None) -> Path:
     run_dir = base / benchmark_name
     run_dir.mkdir(parents=True, exist_ok=True)
     return run_dir
+
+
+@dataclass
+class TaskSpec:
+    name: str
+    runner: Callable
+    description: str
+    requires_model: bool = True
+
+
+@dataclass
+class TaskRequest:
+    name: str
+    params: Dict
+    stage_name: str
+
+
+TASK_REGISTRY: Dict[str, TaskSpec] = {}
+
+
+def _register_task(name: str, runner: Callable, description: str, requires_model: bool = True):
+    if name in TASK_REGISTRY:
+        raise ValueError(f"Task '{name}' is already registered.")
+    TASK_REGISTRY[name] = TaskSpec(name=name, runner=runner, description=description, requires_model=requires_model)
+
+
+def _list_available_tasks() -> None:
+    print("Available tasks:")
+    for name, spec in TASK_REGISTRY.items():
+        print(f"  - {name}: {spec.description}")
 
 
 
@@ -201,6 +234,122 @@ def _maybe_convert_checkpoint_to_hf(
     return str(hf_dir)
 
 
+def _load_model_and_tokenizer(model_id: str, device: torch.device, torch_dtype: torch.dtype):
+    tokenizer = AutoTokenizer.from_pretrained(model_id)
+    if tokenizer.pad_token_id is None and tokenizer.eos_token_id is not None:
+        tokenizer.pad_token_id = tokenizer.eos_token_id
+
+    model = AutoModelForCausalLM.from_pretrained(model_id, torch_dtype=torch_dtype)
+    model.to(device)
+    model.eval()
+    return model, tokenizer
+
+
+def _build_generate_fn(model, tokenizer, device: torch.device, default_max_new_tokens: int, default_temperature: float, default_top_p: float, do_sample: bool):
+    """
+    Create a simple text generator usable by all adapters.
+    Supports single-string or list-of-string prompts.
+    """
+
+    def generate(prompts, max_new_tokens: Optional[int] = None, temperature: Optional[float] = None, top_p: Optional[float] = None):
+        was_str = isinstance(prompts, str)
+        prompt_list = [prompts] if was_str else list(prompts)
+
+        outputs: List[str] = []
+        gen_kwargs = {
+            "max_new_tokens": max_new_tokens or default_max_new_tokens,
+            "temperature": temperature if temperature is not None else default_temperature,
+            "top_p": top_p if top_p is not None else default_top_p,
+            "do_sample": do_sample,
+            "eos_token_id": tokenizer.eos_token_id,
+            "pad_token_id": tokenizer.pad_token_id or tokenizer.eos_token_id,
+        }
+
+        model.eval()
+        with torch.no_grad():
+            for prompt in prompt_list:
+                encoded = tokenizer(prompt, return_tensors="pt").to(device)
+                generated = model.generate(**encoded, **gen_kwargs)
+                gen_text = tokenizer.decode(generated[0][encoded["input_ids"].shape[1]:], skip_special_tokens=True)
+                outputs.append(gen_text)
+
+        return outputs[0] if was_str else outputs
+
+    return generate
+
+
+def _resolve_tasks(tasks_arg: Optional[str], config_tasks: Optional[List[str]]) -> List[str]:
+    """
+    Convert CLI/config task inputs into a list of task labels (strings).
+    - If tasks_arg is provided, split on commas.
+    - Otherwise, use config_tasks or FALLBACK_TASKS.
+    """
+    if tasks_arg:
+        raw = [t.strip() for t in tasks_arg.split(",") if t.strip()]
+    else:
+        raw = config_tasks or FALLBACK_TASKS
+
+    if isinstance(raw, str):
+        return [t.strip() for t in raw.split(",") if t.strip()]
+    return list(raw)
+
+
+def _normalize_task_requests(raw_tasks: List[str], eval_stage_prefix: str) -> List[TaskRequest]:
+    """
+    Map raw task strings to TaskRequest entries.
+    - Known task names are looked up in TASK_REGISTRY.
+    - Unknown names are assumed to be OLMES tasks (passed through to the olmes adapter).
+    """
+    requests: List[TaskRequest] = []
+    olmes_tasks: List[str] = []
+
+    for task in raw_tasks:
+        if task == "olmes":
+            continue  # explicit adapter name; config tasks will be added separately
+        if task in TASK_REGISTRY:
+            requests.append(TaskRequest(name=task, params={}, stage_name=f"{eval_stage_prefix}:{task}"))
+        else:
+            olmes_tasks.append(task)
+
+    # If there are passthrough tasks (or user explicitly wants olmes), add one olmes request.
+    if olmes_tasks or ("olmes" in raw_tasks):
+        stage_name = f"{eval_stage_prefix}:olmes"
+        requests.insert(0, TaskRequest(name="olmes", params={"tasks": olmes_tasks or FALLBACK_TASKS}, stage_name=stage_name))
+
+    # Deduplicate while preserving order
+    seen = set()
+    deduped: List[TaskRequest] = []
+    for req in requests:
+        key = (req.name, tuple(req.params.items()))
+        if key in seen:
+            continue
+        seen.add(key)
+        deduped.append(req)
+    return deduped
+
+
+def _run_olmes_task(context, tasks: List[str], extra_args: List[str]) -> int:
+    """
+    Fallback adapter that shells out to `olmes` with the provided tasks.
+    """
+    benchmark_name = getattr(context.config, "benchmark_name", "olmo_benchmark")
+    cmd = [
+        "olmes",
+        "--model",
+        context.model_path,
+        "--task",
+        *tasks,
+        "--output-dir",
+        str(context.run_dir),
+    ]
+    if extra_args:
+        cmd.extend(extra_args)
+
+    print(f"[{benchmark_name}] OLMES command: {' '.join(cmd)}")
+    result = subprocess.run(cmd, check=False, cwd=str(context.run_dir))
+    return result.returncode
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Run OLMo benchmarks (Tülu-style) under EnergyTracker."
@@ -224,9 +373,50 @@ def main():
         default="olmo_benchmark",
         help="Name for the EnergyTracker stage (default: olmo_benchmark).",
     )
+    parser.add_argument(
+        "--tasks",
+        type=str,
+        default=None,
+        help="Comma-separated list of tasks to run (use 'list' to show available tasks).",
+    )
+    parser.add_argument(
+        "--max-samples",
+        type=int,
+        default=None,
+        help="Limit number of samples per task (adapter-dependent).",
+    )
+    parser.add_argument(
+        "--max-new-tokens",
+        type=int,
+        default=512,
+        help="Default max_new_tokens for generation.",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=0.7,
+        help="Default generation temperature.",
+    )
+    parser.add_argument(
+        "--top-p",
+        type=float,
+        default=0.9,
+        help="Default generation top_p.",
+    )
+    parser.add_argument(
+        "--device",
+        type=str,
+        default=None,
+        help="Torch device to use (default: cuda if available else cpu).",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help="Plan the run and print tasks without executing them.",
+    )
 
     # Anything not consumed here will be forwarded to `olmes`.
-    args, olmes_extra = parser.parse_known_args()
+    args, passthrough = parser.parse_known_args()
 
     # Load experiment config
     config = load_config(args.config)
@@ -234,6 +424,43 @@ def main():
     # Resolve where this benchmark should write its logs and results
     run_dir = _resolve_benchmark_run_dir(config, args.run_dir)
     eval_stage_name = args.eval_stage_name or config.benchmark_name or "olmo_benchmark"
+
+    # Register tasks (adapters will be added in later steps).
+    _register_task(
+        name="olmes",
+        runner=None,  # placeholder; handled separately
+        description="Run OLMES CLI tasks (pass-through).",
+        requires_model=False,
+    )
+    _register_task(
+        name="gsm8k",
+        runner=lambda *args, **kwargs: (_ for _ in ()).throw(NotImplementedError("gsm8k adapter not implemented yet.")),
+        description="GSM8K via lm-eval-harness (adapter pending).",
+    )
+    _register_task(
+        name="mmlu",
+        runner=lambda *args, **kwargs: (_ for _ in ()).throw(NotImplementedError("mmlu adapter not implemented yet.")),
+        description="MMLU via lm-eval-harness (adapter pending).",
+    )
+    _register_task(
+        name="ifeval",
+        runner=lambda *args, **kwargs: (_ for _ in ()).throw(NotImplementedError("ifeval adapter not implemented yet.")),
+        description="IFEval via lm-eval-harness (adapter pending).",
+    )
+    _register_task(
+        name="alpaca_eval",
+        runner=lambda *args, **kwargs: (_ for _ in ()).throw(NotImplementedError("AlpacaEval adapter not implemented yet.")),
+        description="AlpacaEval 2 via official library (adapter pending).",
+    )
+    _register_task(
+        name="mt_bench_101",
+        runner=lambda *args, **kwargs: (_ for _ in ()).throw(NotImplementedError("MT-Bench-101 adapter not implemented yet.")),
+        description="MT-Bench-101 via official repo (adapter pending).",
+    )
+
+    if args.tasks == "list":
+        _list_available_tasks()
+        return
 
     # Decide which model to evaluate
     model_str = getattr(config, "benchmark_model", None)
@@ -245,56 +472,93 @@ def main():
             "'/scratch/.../kd_32b_to_1b_adamw/final_model/hf_format')."
         )
 
+    raw_tasks = _resolve_tasks(args.tasks, getattr(config, "benchmark_tasks", None))
+    benchmark_name = config.benchmark_name
+    task_requests = _normalize_task_requests(raw_tasks, eval_stage_name)
+
+    if args.dry_run:
+        print(f"[{benchmark_name}] Dry-run enabled. Tasks to run (in order): {[r.name for r in task_requests]}")
+        print(f"[{benchmark_name}] Run dir: {run_dir}")
+        return
+
     # NEW: if it's a .pt checkpoint, convert to HF dir under run_dir
-    model_path_for_olmes = _maybe_convert_checkpoint_to_hf(
+    model_path_for_use = _maybe_convert_checkpoint_to_hf(
         model_spec=model_str,
         config=config,
         run_dir=run_dir,
         subdir_name="hf_from_checkpoint",
     )
-    
-    tasks = getattr(config, "benchmark_tasks", None) or FALLBACK_TASKS
-    benchmark_name = config.benchmark_name
-
-    # OLMES output goes into the same run_dir
-    eval_output_dir = run_dir
-    eval_output_dir.mkdir(parents=True, exist_ok=True)
 
     # Prepare EnergyTracker
     tracker = EnergyTracker(run_dir=str(run_dir), config=config)
 
-    # Build OLMES command
-    cmd = [
-        "olmes",
-        "--model",
-        model_path_for_olmes,
-        "--task",
-        *tasks,
-        "--output-dir",
-        str(eval_output_dir),
-    ]
-    
-    # Allow power users to pass extra flags directly to `olmes`
-    if olmes_extra:
-        cmd.extend(olmes_extra)
+    device = torch.device(args.device or ("cuda" if torch.cuda.is_available() else "cpu"))
+    torch_dtype = torch.bfloat16
 
-    print(f"[{benchmark_name}] Running model: {model_path_for_olmes}")
-    print(f"[{benchmark_name}] Tasks: {tasks}")
-    print(f"[{benchmark_name}] Run dir: {run_dir}")
-    print(f"[{benchmark_name}] OLMES command: {' '.join(cmd)}")
+    # Load model/tokenizer only if any task requires it
+    needs_model = any(TASK_REGISTRY[req.name].requires_model for req in task_requests)
+    model = tokenizer = generate_fn = None
+    if needs_model:
+        print(f"[{benchmark_name}] Loading model into memory: {model_path_for_use} (device={device})")
+        model, tokenizer = _load_model_and_tokenizer(model_path_for_use, device=device, torch_dtype=torch_dtype)
+        generate_fn = _build_generate_fn(
+            model=model,
+            tokenizer=tokenizer,
+            device=device,
+            default_max_new_tokens=args.max_new_tokens,
+            default_temperature=args.temperature,
+            default_top_p=args.top_p,
+            do_sample=True,
+        )
+    else:
+        print(f"[{benchmark_name}] No in-memory model load required for selected tasks.")
 
-    returncode = 1
-    try:
-        tracker.start_stage(eval_stage_name)
-        # EnergyTracker will still record GPU/CPU energy even without token counts.
-        result = subprocess.run(cmd, check=False, cwd=str(run_dir))
-        returncode = result.returncode
+    @dataclass
+    class BenchmarkContext:
+        config: any
+        run_dir: Path
+        model_path: str
+        model: any
+        tokenizer: any
+        generate_fn: Callable
+        device: torch.device
+        max_samples: Optional[int]
+
+    context = BenchmarkContext(
+        config=config,
+        run_dir=run_dir,
+        model_path=model_path_for_use,
+        model=model,
+        tokenizer=tokenizer,
+        generate_fn=generate_fn,
+        device=device,
+        max_samples=args.max_samples,
+    )
+
+    returncode = 0
+    for req in task_requests:
+        spec = TASK_REGISTRY.get(req.name)
+        if not spec:
+            print(f"[{benchmark_name}] Unknown task '{req.name}'. Skipping.")
+            continue
+
+        tracker.start_stage(req.stage_name)
+        try:
+            if spec.name == "olmes":
+                returncode = _run_olmes_task(context, tasks=req.params.get("tasks", []), extra_args=passthrough)
+            else:
+                spec.runner(context=context, params=req.params)
+        except NotImplementedError as e:
+            print(f"[{benchmark_name}] Task '{req.name}' not implemented yet: {e}")
+            returncode = 1
+        finally:
+            tracker.end_stage()  # tokens_processed left as default 0
+
         if returncode != 0:
-            print(f"[{benchmark_name}] OLMES exited with code {returncode}")
-    finally:
-        tracker.end_stage()       # tokens_processed left as default 0
-        tracker.save_summary()
+            print(f"[{benchmark_name}] Task '{req.name}' exited with code {returncode}")
+            break
 
+    tracker.save_summary()
     sys.exit(returncode)
 
 
