@@ -7,13 +7,14 @@ import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Callable, Dict, List, Optional
+from typing import Any, Callable, Dict, List, Optional
 
 import torch
 from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from distill_bench.core.config_loader import load_config
 from distill_bench.core.energy_logger import EnergyTracker
+from distill_bench.data import lm_eval_adapter
 
 # Fallback tasks if none are specified in config.benchmark.tasks.
 FALLBACK_TASKS = [
@@ -425,28 +426,14 @@ def main():
     run_dir = _resolve_benchmark_run_dir(config, args.run_dir)
     eval_stage_name = args.eval_stage_name or config.benchmark_name or "olmo_benchmark"
 
-    # Register tasks (adapters will be added in later steps).
+    # Register tasks (adapters added incrementally).
     _register_task(
         name="olmes",
         runner=None,  # placeholder; handled separately
         description="Run OLMES CLI tasks (pass-through).",
         requires_model=False,
     )
-    _register_task(
-        name="gsm8k",
-        runner=lambda *args, **kwargs: (_ for _ in ()).throw(NotImplementedError("gsm8k adapter not implemented yet.")),
-        description="GSM8K via lm-eval-harness (adapter pending).",
-    )
-    _register_task(
-        name="mmlu",
-        runner=lambda *args, **kwargs: (_ for _ in ()).throw(NotImplementedError("mmlu adapter not implemented yet.")),
-        description="MMLU via lm-eval-harness (adapter pending).",
-    )
-    _register_task(
-        name="ifeval",
-        runner=lambda *args, **kwargs: (_ for _ in ()).throw(NotImplementedError("ifeval adapter not implemented yet.")),
-        description="IFEval via lm-eval-harness (adapter pending).",
-    )
+    lm_eval_adapter.register_tasks(_register_task)
     _register_task(
         name="alpaca_eval",
         runner=lambda *args, **kwargs: (_ for _ in ()).throw(NotImplementedError("AlpacaEval adapter not implemented yet.")),
@@ -515,11 +502,11 @@ def main():
 
     @dataclass
     class BenchmarkContext:
-        config: any
+        config: Any
         run_dir: Path
         model_path: str
-        model: any
-        tokenizer: any
+        model: Any
+        tokenizer: Any
         generate_fn: Callable
         device: torch.device
         max_samples: Optional[int]
@@ -547,7 +534,12 @@ def main():
             if spec.name == "olmes":
                 returncode = _run_olmes_task(context, tasks=req.params.get("tasks", []), extra_args=passthrough)
             else:
-                spec.runner(context=context, params=req.params)
+                result = spec.runner(context=context, params=req.params)
+                if isinstance(result, int):
+                    returncode = result
+        except ImportError as e:
+            print(f"[{benchmark_name}] Missing dependency for task '{req.name}': {e}")
+            returncode = 1
         except NotImplementedError as e:
             print(f"[{benchmark_name}] Task '{req.name}' not implemented yet: {e}")
             returncode = 1
