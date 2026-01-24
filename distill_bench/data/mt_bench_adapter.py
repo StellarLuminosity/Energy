@@ -2,7 +2,6 @@
 Adapter for MT-Bench-101 using the official repo.
 """
 import json
-import mt_bench_101
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 

@@ -26,7 +26,7 @@ def load_model(model_path=None, model_name=None, student_model_name=None, device
             raise ValueError("student_model_name required when loading from checkpoint")
 
         # Initialize model structure first
-        model = AutoModelForCausalLM.from_pretrained(
+        student_model = AutoModelForCausalLM.from_pretrained(
             student_model_name,
             torch_dtype=torch.bfloat16,
         )

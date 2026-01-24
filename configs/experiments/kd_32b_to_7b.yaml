@@ -34,6 +34,7 @@ distillation:
 # Output
 output:
   output_dir: "/scratch/klambert/model_log/energy_experiments/kd_32b_to_7b_nosft"
+  checkpoint_dir:
 
 # W&B override
 wandb:
