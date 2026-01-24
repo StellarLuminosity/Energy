@@ -2,7 +2,7 @@ torch==2.6.0
 transformers==4.51.3
 datasets>=2.14.0
 trl==0.17.0
-numpy>=1.24.0
+numpy>=1.24.0,<2.0
 scipy>=1.10.0
 pandas<2.0
 accelerate>=0.25.0
