@@ -71,6 +71,7 @@ Dataset: allenai/tulu-v2-sft-mixture
 Cross-Entropy Loss: 2.3456
 Perplexity: 10.44
 ======================================================================
+```
 
 ## OLMo benchmark script (AlpacaEval 2, GSM8K, MMLU, IFEval, MT-Bench-101)
 
