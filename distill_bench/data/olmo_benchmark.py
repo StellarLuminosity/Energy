@@ -2,6 +2,7 @@
 Evaluation Benchmark Script
 """
 import argparse
+import json
 import os
 import subprocess
 import sys
@@ -351,6 +352,29 @@ def _run_olmes_task(context, tasks: List[str], extra_args: List[str]) -> int:
     return result.returncode
 
 
+def _task_output_paths(task_name: str, run_dir: Path) -> List[str]:
+    """
+    Best-effort mapping from task name to expected output artifact paths.
+    """
+    outputs: List[str] = []
+    if task_name in {"gsm8k", "mmlu", "ifeval"}:
+        p = run_dir / f"lm_eval_{task_name}.json"
+        if p.exists():
+            outputs.append(str(p))
+    elif task_name == "alpaca_eval":
+        p = run_dir / "alpaca_eval" / "alpaca_eval_results.json"
+        if p.exists():
+            outputs.append(str(p))
+    elif task_name == "mt_bench_101":
+        for fname in ["conversations.json", "scores.json"]:
+            p = run_dir / "mt_bench_101" / fname
+            if p.exists():
+                outputs.append(str(p))
+    elif task_name == "olmes":
+        outputs.append(str(run_dir))
+    return outputs
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Run OLMo benchmarks (Tülu-style) under EnergyTracker."
@@ -514,6 +538,12 @@ def main():
         max_samples=args.max_samples,
     )
 
+    summary: Dict[str, Any] = {
+        "benchmark": benchmark_name,
+        "model": model_path_for_use,
+        "tasks_requested": raw_tasks,
+        "tasks": [],
+    }
     returncode = 0
     for req in task_requests:
         spec = TASK_REGISTRY.get(req.name)
@@ -523,18 +553,47 @@ def main():
 
         tracker.start_stage(req.stage_name)
         try:
+            task_entry = {
+                "task": req.name,
+                "stage": req.stage_name,
+                "status": "started",
+            }
             if spec.name == "olmes":
                 returncode = _run_olmes_task(context, tasks=req.params.get("tasks", []), extra_args=passthrough)
             else:
                 result = spec.runner(context=context, params=req.params)
                 if isinstance(result, int):
                     returncode = result
+                elif isinstance(result, dict):
+                    task_entry.update(result)
+            task_entry["status"] = "completed" if returncode == 0 else "failed"
+            task_entry["returncode"] = returncode
+            task_entry.setdefault("outputs", _task_output_paths(req.name, run_dir))
+            summary["tasks"].append(task_entry)
         except ImportError as e:
             print(f"[{benchmark_name}] Missing dependency for task '{req.name}': {e}")
             returncode = 1
+            summary["tasks"].append(
+                {
+                    "task": req.name,
+                    "stage": req.stage_name,
+                    "status": "failed",
+                    "error": str(e),
+                    "returncode": returncode,
+                }
+            )
         except NotImplementedError as e:
             print(f"[{benchmark_name}] Task '{req.name}' not implemented yet: {e}")
             returncode = 1
+            summary["tasks"].append(
+                {
+                    "task": req.name,
+                    "stage": req.stage_name,
+                    "status": "failed",
+                    "error": str(e),
+                    "returncode": returncode,
+                }
+            )
         finally:
             tracker.end_stage()  # tokens_processed left as default 0
 
@@ -543,6 +602,10 @@ def main():
             break
 
     tracker.save_summary()
+    summary["returncode"] = returncode
+    summary_path = run_dir / "benchmark_summary.json"
+    summary_path.write_text(json.dumps(summary, indent=2))
+    print(f"[{benchmark_name}] Summary saved to {summary_path}")
     sys.exit(returncode)
 
 

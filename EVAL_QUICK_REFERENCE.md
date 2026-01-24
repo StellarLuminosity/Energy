@@ -71,4 +71,33 @@ Dataset: allenai/tulu-v2-sft-mixture
 Cross-Entropy Loss: 2.3456
 Perplexity: 10.44
 ======================================================================
+
+## OLMo benchmark script (AlpacaEval 2, GSM8K, MMLU, IFEval, MT-Bench-101)
+
+Dependencies (install as needed):
+- `lm-eval` for GSM8K/MMLU/IFEval (`pip install lm-eval`)
+- `alpaca_eval` for AlpacaEval 2 (`pip install alpaca_eval`)
+- `mt-bench-101` repo for MT-Bench-101 (https://github.com/mtbench101/mt-bench-101)
+
+Usage:
+```bash
+# List available tasks
+python distill_bench/data/olmo_benchmark.py --config <cfg.yaml> --tasks list --run-dir /tmp/bench --dry-run
+
+# Run lm-eval tasks with a small sample limit
+python distill_bench/data/olmo_benchmark.py --config <cfg.yaml> \
+  --tasks gsm8k,mmlu,ifeval --max-samples 2 --run-dir /tmp/bench_lm
+
+# Run AlpacaEval 2
+python distill_bench/data/olmo_benchmark.py --config <cfg.yaml> \
+  --tasks alpaca_eval --max-samples 5 --run-dir /tmp/bench_alpaca
+
+# Run MT-Bench-101 subset
+python distill_bench/data/olmo_benchmark.py --config <cfg.yaml> \
+  --tasks mt_bench_101 --max-samples 4 --run-dir /tmp/bench_mt
+```
+
+Outputs:
+- Per-task artifacts in the run dir (e.g., `lm_eval_<task>.json`, `alpaca_eval/alpaca_eval_results.json`, `mt_bench_101/scores.json`).
+- Aggregated run summary at `<run_dir>/benchmark_summary.json`.
 ```
