@@ -19,3 +19,4 @@ run_pipeline.sh
 configs/*
 notAGENTSnot.md
 benchmark_view.ipynb
+run_kd_32b_to_1b_t2.sh
