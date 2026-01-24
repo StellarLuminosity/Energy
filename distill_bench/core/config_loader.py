@@ -37,7 +37,6 @@ class Config:
         self.num_training_steps = training.get("num_training_steps", 0)
         self.save_steps = training.get("save_steps", 200)
         self.eval_steps = training.get("eval_steps", 100)
-        self.resume_from_checkpoint = training.get("resume_from_checkpoint", False)
 
         # Experiment
         exp = self._config.get("experiment", {})
@@ -86,6 +85,7 @@ class Config:
         output = self._config.get("output", {})
         self.output_dir = output.get("output_dir", "./outputs")
         self.output_run_dir = output.get("run_dir", None)
+        self.checkpoint_dir = output.get("checkpoint_dir", None)
 
         # Benchmark / evaluation
         benchmark = self._config.get("benchmark", {})
@@ -108,6 +108,7 @@ class Config:
         self.temperature = distill.get("temperature", 1.0)
         self.logprob_cache_path = distill.get("logprob_cache_path", "")
         self.top_k_logits = distill.get("top_k_logits", None)
+        self.resume_from_checkpoint = distill.get("resume_from_checkpoint", False)
 
         # Synthetic data (SFT-specific)
         synth = self._config.get("synthetic_data", {})
