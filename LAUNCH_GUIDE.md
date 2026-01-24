@@ -20,10 +20,6 @@ Choices for `-data-script`: `synthetic_generation`, `preference_dataset`, `logit
 - `sbatch run_sft_32b_to_1b.sh configs/experiments/sft_32b_to_1b.yaml`
 - `sbatch run_sft_32b_to_7b.sh configs/experiments/sft_32b_to_7b.yaml`
 
-## DPO training
-- `sbatch run_pipeline.sh configs/experiments/dpo_32b_to_1b.yaml`
-- `sbatch run_pipeline.sh configs/experiments/dpo_32b_to_7b.yaml`
-
 ## Benchmark Evaluation
 - Olmo 1b: `sbatch run_kd_32b_to_1b.sh configs/experiments/kd_32b_to_1b.yaml --data-script olmo_benchmark`
 - Olmo 7b: `sbatch run_kd_32b_to_7b.sh configs/experiments/kd_32b_to_7b.yaml --data-script olmo_benchmark`
