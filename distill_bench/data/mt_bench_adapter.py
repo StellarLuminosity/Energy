@@ -1,11 +1,8 @@
 """
 Adapter for MT-Bench-101 using the official repo.
-
-We assume the repo code is importable as `mt_bench_101`. This adapter wires the
-shared generator into the MT-Bench-101 evaluation flow, runs a limited subset
-if requested, and saves scores plus raw conversations.
 """
 import json
+import mt_bench_101
 from pathlib import Path
 from typing import Callable, Dict, List, Optional
 

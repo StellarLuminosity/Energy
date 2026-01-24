@@ -7,7 +7,7 @@
 #SBATCH --cpus-per-task=16
 #SBATCH --export=NONE
 #SBATCH --account=def-lylan                                
-#SBATCH --time=20:00:00
+#SBATCH --time=1-00:00:00
 
 # Unified experiment launcher for KD/SFT/DPO pipelines (single-GPU)
 # 1 H100:        srun -c 16 --gres=gpu:h100:1 --partition=gpubase_h100_b5 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
@@ -57,7 +57,9 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # wandb settings
 export WANDB_MODE=offline
 export WANDB_DIR=$SCRATCH/wandb
-mkdir -p "$WANDB_DIR"
+export WANDB_CACHE_DIR=$SCRATCH/.cache/wandb
+export WANDB_CONFIG_DIR=$SCRATCH/.config/wandb
+mkdir -p "$WANDB_DIR" "$WANDB_CACHE_DIR" "$WANDB_CONFIG_DIR"
 export WANDB_PROJECT="${WANDB_PROJECT:-$SLURM_JOB_NAME}"
 
 # Load modules
