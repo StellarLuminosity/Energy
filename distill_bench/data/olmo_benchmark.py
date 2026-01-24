@@ -14,7 +14,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 
 from distill_bench.core.config_loader import load_config
 from distill_bench.core.energy_logger import EnergyTracker
-from distill_bench.data import lm_eval_adapter
+from distill_bench.data import alpaca_eval_adapter, lm_eval_adapter
 
 # Fallback tasks if none are specified in config.benchmark.tasks.
 FALLBACK_TASKS = [
@@ -434,11 +434,7 @@ def main():
         requires_model=False,
     )
     lm_eval_adapter.register_tasks(_register_task)
-    _register_task(
-        name="alpaca_eval",
-        runner=lambda *args, **kwargs: (_ for _ in ()).throw(NotImplementedError("AlpacaEval adapter not implemented yet.")),
-        description="AlpacaEval 2 via official library (adapter pending).",
-    )
+    alpaca_eval_adapter.register_tasks(_register_task)
     _register_task(
         name="mt_bench_101",
         runner=lambda *args, **kwargs: (_ for _ in ()).throw(NotImplementedError("MT-Bench-101 adapter not implemented yet.")),
