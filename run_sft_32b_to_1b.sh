@@ -54,7 +54,9 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 # wandb settings
 export WANDB_MODE=offline
 export WANDB_DIR=$SCRATCH/wandb
-mkdir -p "$WANDB_DIR"
+export WANDB_CACHE_DIR=$SCRATCH/.cache/wandb
+export WANDB_CONFIG_DIR=$SCRATCH/.config/wandb
+mkdir -p "$WANDB_DIR" "$WANDB_CACHE_DIR" "$WANDB_CONFIG_DIR"
 export WANDB_PROJECT="${WANDB_PROJECT:-$SLURM_JOB_NAME}"
 
 # Load modules
