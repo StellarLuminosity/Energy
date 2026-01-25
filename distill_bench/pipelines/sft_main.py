@@ -25,9 +25,13 @@ from distill_bench.core.checkpoint import SimpleCheckpointer
 
 def compute_sft_loss(model, batch, device):
     """Compute standard cross-entropy loss for SFT."""
-    input_ids = batch["input_ids"].to(device)
-    attention_mask = batch["attention_mask"].to(device)
-    labels = batch["labels"].to(device)
+    input_ids = batch["input_ids"]
+    attention_mask = batch["attention_mask"]
+    labels = batch["labels"]
+
+    input_ids = input_ids.to(device)
+    attention_mask = attention_mask.to(device)
+    labels = labels.to(device)
 
     outputs = model(
         input_ids=input_ids,
@@ -134,7 +138,7 @@ def train_epoch(
                 eval_loss = eval_model(model, eval_loader, device)
                 min_eval_loss = min(min_eval_loss, eval_loss)
                 recent_eval_losses.append(eval_loss)
-                if len(recent_eval_losses) > 3:
+                if len(recent_eval_losses) > 2:
                     recent_eval_losses.pop(0)
 
                 if use_wandb:
@@ -147,13 +151,13 @@ def train_epoch(
                         step=global_step,
                     )
 
-                # Early stopping: current eval loss worse than previous two
-                if len(recent_eval_losses) >= 3:
+                # Early stopping: current eval loss worse
+                if len(recent_eval_losses) >= 2:
                     current = recent_eval_losses[-1]
-                    prev_two = recent_eval_losses[-3:-1]
-                    if current > prev_two[0] and current > prev_two[1]:
+                    prev_two = recent_eval_losses[-2]
+                    if current > prev_two:
                         main_print(
-                            f"Early stopping triggered: eval loss {current:.4f} > previous two values {prev_two[0]:.4f}, {prev_two[1]:.4f}"
+                            f"Early stopping triggered: eval loss {current:.4f} > previous two values {prev_two}"
                         )
                         should_stop = True
                         break
