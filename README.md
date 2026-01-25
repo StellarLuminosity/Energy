@@ -2,22 +2,21 @@ Energy
 Distillation Energy Benchmark
 ================================
 
-This repo runs standardized distillation experiments and measures the energy/quality/throughput trade-offs. It compares three pipelines: knowledge distillation (KD, teacher logits), synthetic data SFT (teacher generations), and preference distillation (DPO, judge preferences) with consistent hardware, token budgets, and logging. Teacher-side costs (generation, judging, evaluation) are included so you can see the full energy bill.
+This repo runs standardized distillation experiments and measures the energy/quality/throughput trade-offs. It compares three pipelines: knowledge distillation (KD, teacher logits), and synthetic data SFT (teacher generations) with consistent hardware, token budgets, and logging. Teacher-side costs (generation, judging, evaluation) are included so you can see the full energy bill.
 
 Pipelines at a glance
 ---------------------
 - Knowledge Distillation (KD): cache teacher logits over a fixed corpus, then train the student with CE + KL loss (temperature τ, weight α).
 - Data / Sequence Distillation (Synthetic SFT): teacher generates responses or CoT traces; students train with standard SFT on the synthetic set, with optional filtering and decoding ablations.
-- Preference Distillation (DPO): teacher/judge produces preference pairs (chosen vs rejected); students train with a DPO objective (beta, judge variants).
 - Optional self-distillation: treat a previous student checkpoint as the teacher and compare against straight additional training.
 
 Project layout
 --------------
-- run_experiment.py: dispatches to KD/SFT/DPO pipelines or data-only scripts via `--data-script`.
+- run_experiment.py: dispatches to KD/SFT pipelines or data-only scripts via `--data-script`.
 - run_pipeline.sh: SLURM batch wrapper (single-GPU defaults) that activates the venv and launches `run_experiment.py`.
 - configs/base.yaml: fixed settings for fair comparison (seed, token budget, optimizer, energy logging defaults, datasets).
-- configs/experiments/*.yaml: per-run overrides for KD/SFT/DPO (teacher/student models, beta/alpha/temperature, output dirs).
-- distill_bench/pipelines/: main training loops for kd_main.py, sft_main.py, dpo_main.py.
+- configs/experiments/*.yaml: per-run overrides for KD/SFT (teacher/student models, beta/alpha/temperature, output dirs).
+- distill_bench/pipelines/: main training loops for kd_main.py, sft_main.py.
 - distill_bench/data/: preprocessing and generation scripts (logit caching, synthetic generation, preference dataset, Tulu/Codeforces/OpenR1 preprocess).
 - distill_bench/core/: shared utilities (energy_logger.py, environment capture, trainer abstractions, config loader).
 - logs/: default run_dir where stage outputs, codecarbon CSVs, and summaries are written.
