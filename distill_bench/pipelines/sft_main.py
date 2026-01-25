@@ -250,7 +250,25 @@ def main(args):
     # Load or generate synthetic dataset
     main_print("Loading synthetic dataset...")
     synthetic_dataset = load_synthetic_dataset(config)
-    main_print(f"Synthetic dataset: {len(synthetic_dataset['train'])} train, {len(synthetic_dataset['test'])} eval")
+    train_len = len(synthetic_dataset["train"])
+    eval_len = len(synthetic_dataset["test"])
+    main_print(f"Synthetic dataset: {train_len} train, {eval_len} eval")
+
+    max_gen_examples = getattr(config, "max_gen_examples", None)
+    if max_gen_examples is not None:
+        max_gen_examples = int(max_gen_examples)
+        main_print(f"Subsampling synthetic dataset to at most {max_gen_examples} examples per split")
+        for split_name, split_ds in synthetic_dataset.items():
+            split_size = len(split_ds)
+            if split_size > max_gen_examples:
+                synthetic_dataset[split_name] = split_ds.shuffle(seed=config.seed).select(range(max_gen_examples))
+                main_print(f"  {split_name}: {split_size} -> {len(synthetic_dataset[split_name])}")
+            else:
+                main_print(f"  {split_name}: {split_size} (no subsample)")
+
+        train_len = len(synthetic_dataset["train"])
+        eval_len = len(synthetic_dataset["test"])
+        main_print(f"Post-subsample sizes: {train_len} train, {eval_len} eval")
 
     # Prepare dataloaders
     train_loader, eval_loader = prepare_dataset(
