@@ -1,13 +1,14 @@
 #!/bin/bash
-#SBATCH --job-name=sft_subsample_3500
+#SBATCH --job-name=sft_true
 #SBATCH --output=/scratch/klambert/run_logs/%x_%j.out                
 #SBATCH --error=/scratch/klambert/run_logs/%x_%j.err                                            
-#SBATCH --partition=compute
-#SBATCH --gpus-per-node=1 
-#SBATCH --cpus-per-task=16
+#SBATCH --partition=gpubase_h100_b2
+#SBATCH --gres=gpu:h100:1
+#SBATCH --cpus-per-task=16                                                                   
+#SBATCH --mem=120GB
 #SBATCH --export=NONE
-#SBATCH --account=def-lylan                                
-#SBATCH --time=10:00:00
+#SBATCH --account=aip-craffel                     
+#SBATCH --time=5:00:00
 
 # Unified experiment launcher for KD/SFT/DPO pipelines (single-GPU)
 # 1 H100:        srun -c 16 --gres=gpu:h100:1 --partition=gpubase_h100_b5 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
