@@ -276,6 +276,7 @@ def main(args):
                     # Fallback: count all input tokens
                     batch_tokens = batch["input_ids"].numel()
                 total_tokens_processed += batch_tokens
+                energy_tracker.add_tokens(batch_tokens)
 
             # Update progress bar
             if rank == 0:
@@ -296,6 +297,8 @@ def main(args):
             # Skip in debug mode to avoid NCCL timeout
             if not config.debug_mode and trainer.global_step > 0 and trainer.global_step % config.save_steps == 0:
                 trainer.save_checkpoint(loss=None)
+                if energy_tracker:
+                    energy_tracker.snapshot_stage(step=trainer.global_step, suffix="checkpoint")
 
         # Skip end-of-epoch processing in debug mode (already stopped)
         if config.debug_mode and trainer.global_step >= config.debug_max_steps:
@@ -323,6 +326,8 @@ def main(args):
         # Save Epoch Checkpoint
         # ----------------------------------
         trainer.save_checkpoint(loss=eval_loss)
+        if energy_tracker:
+            energy_tracker.snapshot_stage(step=trainer.global_step, suffix="checkpoint")
 
     # End energy tracking for training
     if energy_tracker and energy_tracker.current_stage:
