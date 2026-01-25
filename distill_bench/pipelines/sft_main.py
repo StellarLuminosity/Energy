@@ -397,6 +397,7 @@ def main(args):
 
         # Evaluate
         eval_loss = eval_model(model, eval_loader, device)
+        min_eval_loss = min(min_eval_loss, eval_loss)
 
         main_print(f"Epoch {epoch} - Train Loss: {train_loss:.4f}, Eval Loss: {eval_loss:.4f}")
         main_print(f"Tokens processed this epoch: {epoch_tokens:,}, Total: {total_tokens_processed:,}")
