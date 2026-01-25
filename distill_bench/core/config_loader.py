@@ -99,7 +99,8 @@ class Config:
         )
         self.benchmark_tasks = benchmark.get("tasks", None)
         self.benchmark_name = benchmark.get("subfolder_name", None)
-        self.mt_bench_path = benchmark.get("mt_bench_101").get("data_path", None)
+        mt_bench_cfg = benchmark.get("mt_bench_101") or {}
+        self.mt_bench_path = mt_bench_cfg.get("data_path", None)
 
         # Pipeline
         self.pipeline = self._config.get("pipeline", "kd")
