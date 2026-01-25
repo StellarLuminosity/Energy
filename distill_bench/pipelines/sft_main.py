@@ -25,9 +25,13 @@ from distill_bench.core.checkpoint import SimpleCheckpointer
 
 def compute_sft_loss(model, batch, device):
     """Compute standard cross-entropy loss for SFT."""
-    input_ids = batch["input_ids"].to(device)
-    attention_mask = batch["attention_mask"].to(device)
-    labels = batch["labels"].to(device)
+    input_ids = batch["input_ids"]
+    attention_mask = batch["attention_mask"]
+    labels = batch["labels"]
+
+    input_ids = input_ids.to(device)
+    attention_mask = attention_mask.to(device)
+    labels = labels.to(device)
 
     outputs = model(
         input_ids=input_ids,
@@ -74,7 +78,6 @@ def train_epoch(
     should_stop = False
 
     progress_bar = tqdm(train_loader, desc=f"Training Epoch {epoch}")
-    patience_counter = 0
 
     for step, batch in enumerate(progress_bar):
         loss = compute_sft_loss(model, batch, device)
@@ -143,22 +146,16 @@ def train_epoch(
                         step=global_step,
                     )
 
-                # Early stopping
-                min_delta = 0.01  # require this much absolute improvement to reset patience
-                patience = 2      # stop after this many evals without sufficient improvement
-
-                if eval_loss < min_eval_loss - min_delta:
-                    min_eval_loss = eval_loss
-                    patience_counter = 0
-                else:
-                    patience_counter += 1
-                    if patience_counter >= patience:
+                # Early stopping: current eval loss worse
+                if len(recent_eval_losses) >= 2:
+                    current = recent_eval_losses[-1]
+                    prev_two = recent_eval_losses[-2]
+                    if current > prev_two:
                         main_print(
-                            f"Early stopping: eval loss {eval_loss:.4f} did not improve by {min_delta} for {patience} evals (best {min_eval_loss:.4f})"
+                            f"Early stopping triggered: eval loss {current:.4f} > previous two values {prev_two}"
                         )
                         should_stop = True
                         break
-
 
         total_loss += loss.item()
         progress_bar.set_postfix({"loss": f"{loss.item():.4f}"})
