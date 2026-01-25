@@ -8,7 +8,7 @@ import threading
 import atexit
 from datetime import datetime
 from dataclasses import dataclass, field, asdict
-from typing import Optional, Dict, List, Any
+from typing import Optional, Dict, List, Any, Tuple
 from pathlib import Path
 
 from codecarbon import EmissionsTracker, OfflineEmissionsTracker
@@ -226,15 +226,23 @@ class RAPLReader:
 class NVMLPoller:
     """Background thread for polling GPU power via NVML."""
 
-    def __init__(self, poll_interval_ms: int = 500, device_indices: Optional[List[int]] = None):
+    def __init__(
+        self,
+        poll_interval_ms: int = 500,
+        device_indices: Optional[List[int]] = None,
+        power_log_path: Optional[Path] = None,
+    ):
         self.poll_interval_sec = poll_interval_ms / 1000.0
         self.device_indices = device_indices
+        self.power_log_path = Path(power_log_path) if power_log_path else None
         self.power_readings: List[Dict[str, float]] = []
         self._stop_event = threading.Event()
         self._thread: Optional[threading.Thread] = None
         self._handles: List[Any] = []
         self._initialized = False
         self._lock = threading.Lock()
+        self._log_file = None
+        self._log_writer = None
 
     def start(self):
         """Initialize NVML and start polling thread."""
@@ -248,6 +256,21 @@ class NVMLPoller:
                 self.device_indices = _infer_nvml_device_indices(device_count)
 
             self._handles = [pynvml.nvmlDeviceGetHandleByIndex(i) for i in self.device_indices]
+
+            # Prepare power log file if requested
+            if self.power_log_path:
+                try:
+                    self.power_log_path.parent.mkdir(parents=True, exist_ok=True)
+                    self._log_file = open(self.power_log_path, "a", newline="")
+                    self._log_writer = csv.writer(self._log_file)
+                    if self.power_log_path.stat().st_size == 0:
+                        header = ["timestamp"] + [f"gpu_{i}_power_w" for i in self.device_indices] + ["total_power_w"]
+                        self._log_writer.writerow(header)
+                        self._log_file.flush()
+                except Exception as e:
+                    print(f"[NVMLPoller] Warning: failed to open power log at {self.power_log_path}: {e}")
+                    self._log_file = None
+                    self._log_writer = None
 
             try:
                 uuids = []
@@ -283,6 +306,14 @@ class NVMLPoller:
                 powers["total_power_w"] = total_power
                 with self._lock:
                     self.power_readings.append(powers)
+                if self._log_writer:
+                    try:
+                        row = [timestamp] + [powers.get(f"gpu_{i}", 0.0) for i in self.device_indices] + [total_power]
+                        self._log_writer.writerow(row)
+                        self._log_file.flush()
+                    except Exception:
+                        # Do not crash the poller if logging fails
+                        pass
 
             except pynvml.NVMLError:
                 pass  # Skip failed readings
@@ -299,6 +330,14 @@ class NVMLPoller:
         with self._lock:
             readings = self.power_readings.copy()
             self.power_readings.clear()
+        if self._log_file:
+            try:
+                self._log_file.flush()
+                self._log_file.close()
+            except Exception:
+                pass
+            self._log_file = None
+            self._log_writer = None
         return readings
 
     def get_current_readings(self) -> List[Dict[str, float]]:
@@ -484,7 +523,10 @@ class EnergyTracker:
             torch.cuda.synchronize()
 
         # Start NVML polling
-        self._nvml_poller = NVMLPoller(poll_interval_ms=self.nvml_poll_interval_ms)
+        self._nvml_poller = NVMLPoller(
+            poll_interval_ms=self.nvml_poll_interval_ms,
+            power_log_path=stage_dir / "power_log.csv",
+        )
         self._nvml_poller.start()
 
         stage_metrics.start_time = time.time()
@@ -513,48 +555,13 @@ class EnergyTracker:
             self._nvml_poller = None
 
             if readings:
-                readings.sort(key=lambda r: r["timestamp"])
-                stage_metrics.gpu_power_samples = [r["total_power_w"] for r in readings]
-
-                # Integrate power over the exact stage window [start_time, end_time]
-                start_t = stage_metrics.start_time
-                end_t = stage_metrics.end_time
-
-                def power_at(t: float) -> float:
-                    """
-                    Sample-and-hold power at time t using the last reading with timestamp <= t.
-                    If t is before the first reading, use the first reading's power.
-                    """
-                    p = readings[0]["total_power_w"]
-                    for r in readings:
-                        if r["timestamp"] <= t:
-                            p = r["total_power_w"]
-                        else:
-                            break
-                    return p
-
-                # Build a window aligned to stage boundaries to avoid edge undercount
-                window = [{"timestamp": start_t, "total_power_w": power_at(start_t)}]
-                for r in readings:
-                    ts = r["timestamp"]
-                    if start_t < ts < end_t:
-                        window.append({"timestamp": ts, "total_power_w": r["total_power_w"]})
-                window.append({"timestamp": end_t, "total_power_w": power_at(end_t)})
-
-                # Trapezoidal integration over the padded window
-                e_j = 0.0
-                for a, b in zip(window, window[1:]):
-                    p0, t0 = a["total_power_w"], a["timestamp"]
-                    p1, t1 = b["total_power_w"], b["timestamp"]
-                    dt = max(0.0, t1 - t0)
-                    e_j += 0.5 * (p0 + p1) * dt
-
-                stage_metrics.gpu_energy_joules = e_j
-
-                # Avg/peak power (now duration + energy exist)
-                if stage_metrics.duration_seconds > 0:
-                    stage_metrics.gpu_avg_power_watts = stage_metrics.gpu_energy_joules / stage_metrics.duration_seconds
-                stage_metrics.gpu_peak_power_watts = max(stage_metrics.gpu_power_samples)
+                energy_j, power_samples, avg_power, peak_power = self._integrate_power(
+                    readings, stage_metrics.start_time, stage_metrics.end_time
+                )
+                stage_metrics.gpu_power_samples = power_samples
+                stage_metrics.gpu_energy_joules = energy_j
+                stage_metrics.gpu_avg_power_watts = avg_power
+                stage_metrics.gpu_peak_power_watts = peak_power
 
         # Stop CodeCarbon
         if self._codecarbon_tracker is not None:
@@ -613,6 +620,78 @@ class EnergyTracker:
 
         self.current_stage = None
         return stage_metrics
+
+    def snapshot_stage(self, step: Optional[int] = None, suffix: str = "checkpoint") -> Optional[Path]:
+        """Write a partial snapshot for the running stage without stopping it."""
+        if self.current_stage is None:
+            print("[EnergyTracker] No active stage to snapshot.")
+            return None
+
+        stage_id = self.current_stage
+        now = time.time()
+        # Clone current metrics so we don't mutate live stage state
+        snapshot_metrics = StageMetrics(**asdict(self.stages[stage_id]))
+        snapshot_metrics.end_time = now
+        snapshot_metrics.duration_seconds = now - snapshot_metrics.start_time
+
+        # GPU energy from current readings
+        readings = self._nvml_poller.get_current_readings() if self._nvml_poller else []
+        energy_j, power_samples, avg_power, peak_power = self._integrate_power(
+            readings, snapshot_metrics.start_time, now
+        )
+        snapshot_metrics.gpu_energy_joules = energy_j
+        snapshot_metrics.gpu_power_samples = power_samples
+        snapshot_metrics.gpu_avg_power_watts = avg_power
+        snapshot_metrics.gpu_peak_power_watts = peak_power
+
+        # CodeCarbon partial metrics if available
+        cc_metrics = self._read_codecarbon_metrics(self.codecarbon_dir, project_name=stage_id)
+        if cc_metrics is not None:
+            snapshot_metrics.total_codecarbon_energy_kwh = cc_metrics["energy_consumed_kwh"]
+            snapshot_metrics.codecarbon_cpu_energy_kwh = cc_metrics["cpu_energy_kwh"]
+            snapshot_metrics.codecarbon_gpu_energy_kwh = cc_metrics["gpu_energy_kwh"]
+            snapshot_metrics.codecarbon_ram_energy_kwh = cc_metrics["ram_energy_kwh"]
+            if snapshot_metrics.cpu_energy_joules <= 0.0 and cc_metrics["cpu_energy_kwh"] > 0.0:
+                snapshot_metrics.cpu_energy_joules = cc_metrics["cpu_energy_kwh"] * 3_600_000.0
+
+        # Partial CPU energy via RAPL without stopping it
+        if self.track_cpu and self._rapl_reader is not None:
+            try:
+                current_raw = self._rapl_reader._collect_raw()
+                pkg_start = self._rapl_reader.start_uj.get("package", 0)
+                pkg_end = current_raw.get("package", 0)
+                pkg_range = self._rapl_reader.max_range_uj.get("package", 0)
+                if pkg_start or pkg_end:
+                    if pkg_range > 0 and pkg_end < pkg_start:
+                        delta_uj = pkg_end + (pkg_range - pkg_start)
+                    else:
+                        delta_uj = pkg_end - pkg_start
+                    snapshot_metrics.cpu_energy_joules = max(0.0, delta_uj / 1e6)
+            except Exception as e:
+                print(f"[EnergyTracker] RAPL partial read failed: {e}")
+
+        snapshot_metrics.compute_derived_metrics(total_energy_policy=self.total_energy_policy)
+
+        # Persist snapshot JSON
+        safe_stage_id = _safe_filename(stage_id)
+        stage_dir = self._stage_dirs.get(stage_id, self.stages_dir / safe_stage_id)
+        stage_dir.mkdir(parents=True, exist_ok=True)
+        step_label = f"step_{step}" if step is not None else "partial"
+        snapshot_filename = f"{safe_stage_id}__{_safe_filename(step_label)}.json"
+        snapshot_path = stage_dir / snapshot_filename
+        payload = snapshot_metrics.to_dict(include_power_samples=True)
+        payload["nvml_poll_interval_ms"] = self.nvml_poll_interval_ms
+        payload["snapshot"] = True
+        payload["snapshot_type"] = suffix
+        payload["snapshot_step"] = step
+        payload["snapshot_time"] = datetime.now().isoformat()
+        _write_json(snapshot_path, payload)
+        stage_path_root = self.stages_dir / snapshot_filename
+        if stage_path_root != snapshot_path:
+            _write_json(stage_path_root, payload)
+
+        print(f"[EnergyTracker] Snapshot saved for stage '{stage_id}' at step {step}: {snapshot_path}")
+        return snapshot_path
 
     def add_tokens(self, count: int):
         """Add tokens to current stage's count (for incremental updates)."""
@@ -685,6 +764,51 @@ class EnergyTracker:
         metrics[f"{prefix}/overall_joules_per_token"] = summary["overall_joules_per_token"]
 
         return metrics
+
+    def _integrate_power(
+        self,
+        readings: List[Dict[str, float]],
+        start_t: float,
+        end_t: float,
+    ) -> Tuple[float, List[float], float, float]:
+        """
+        Integrate power readings over [start_t, end_t] and return:
+        energy_joules, power_samples, avg_power, peak_power.
+        """
+        if not readings:
+            return 0.0, [], 0.0, 0.0
+
+        readings = sorted(readings, key=lambda r: r["timestamp"])
+        power_samples = [r["total_power_w"] for r in readings]
+
+        def power_at(t: float) -> float:
+            p = readings[0]["total_power_w"]
+            for r in readings:
+                if r["timestamp"] <= t:
+                    p = r["total_power_w"]
+                else:
+                    break
+            return p
+
+        window = [{"timestamp": start_t, "total_power_w": power_at(start_t)}]
+        for r in readings:
+            ts = r["timestamp"]
+            if start_t < ts < end_t:
+                window.append({"timestamp": ts, "total_power_w": r["total_power_w"]})
+        window.append({"timestamp": end_t, "total_power_w": power_at(end_t)})
+
+        e_j = 0.0
+        for a, b in zip(window, window[1:]):
+            p0, t0 = a["total_power_w"], a["timestamp"]
+            p1, t1 = b["total_power_w"], b["timestamp"]
+            dt = max(0.0, t1 - t0)
+            e_j += 0.5 * (p0 + p1) * dt
+
+        duration = max(0.0, end_t - start_t)
+        avg_power = e_j / duration if duration > 0 else 0.0
+        peak_power = max(power_samples) if power_samples else 0.0
+
+        return e_j, power_samples, avg_power, peak_power
 
     def _read_codecarbon_metrics(
         self, codecarbon_dir: Path, project_name: str

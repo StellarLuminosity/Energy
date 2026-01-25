@@ -43,7 +43,7 @@ synthetic_data:
     # Additional filters can be added (e.g., perplexity threshold)
   
   # Paths
-  synthetic_dataset_path: "/scratch/klambert/dataset/synthetic_tulu"
+  synthetic_dataset_path: "/scratch/klambert/dataset/tulu-3-sft-mixture-preprocessed"
   use_existing: false  # If true, skip generation and use existing dataset
 
 # Output

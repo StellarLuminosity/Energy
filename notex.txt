@@ -21,39 +21,68 @@ SFT:
 - Env metadata, checkpoints, and model: /scratch/klambert/model_log/energy_experiments/sft_32b_to_1b
 - Change dataset choice in the sft and base configs before launching scirpts!
 
-DPO:
-- Env metadata, checkpoints, and model: /scratch/klambert/model_log/energy_experiments/dpo_32b_to_1b
-
+!! unadd configs folder from the .gitignore
 !! Move the energy logs from the trillium cluster into the home directory !!
 
-What still needs to be coded:
-[X] Copy configs
-[X] test the KD pipeline
-[X] Launch the KD pipeline for 
-    [X] 1b 
-    [X] 7b
-    [X] 13b
-[X] SFT: add preprocessing scripts for two additional datasets; 
-[X] SFT: update synthetic data generation to handle those datasets
-[X] Test the synthetic generation script
-[X] test the SFT main pipeline
-[X] Launch the SFT pipeline for 
-    [X] 1b
-    [X] 7b
-    [X] 13b
-[] Write proper benchmarking and plotting scripts
-[] benchmark KD
-[] benchmark SFT
-[] update and finalize the outline for ICML - email Sasha to confirm
-[] compare energy metrics for KD and aggregate them for the paper
-[] launch SFT runs
-[] run benchmarking on SFT models
-[] aggregate energy experiments for SFT models
-[] test the DPO preference dataset generation script
-[] run the dpo preprocessing pipeline
-[] run the dpo pipeline
-[] accumulate and add logs for the paper
+Runs Checklist:
+  - [X] Generate **KD teacher logits** on the TULU-3 SFT mixture (full dataset, fixed seq len).
+  - [X] Generate **synthetic SFT datasets** with OLMo-2-32B-SFT:
+    - [X] Instruction/general synthetic set (TULU-style prompts).
+    - [X] Math synthetic set (e.g., OpenR1-Math-220k style).
+    - [X] Coding synthetic set (e.g., Codeforces-CoTS style).
+  - [X] Generate and cache teacher logits for TULU dataset from 32B-SFT model
 
-What still need to be done:
-[] unadd configs folder from the .gitignore
+- [ ] **Core 3 × 3 grid (pipelines × student sizes)**  
+  For each student ∈ {1B, 7B, 13B}, with fixed training budget, seq len 1024, same optimizer/schedule:
+  - [X] Train **Baseline SFT** (no teacher) on TULU-3 SFT mixture.
+  - [ ] Train **KD Proper** using cached teacher logits on TULU-3.
+    - [] 1B (launched killarney)
+    - [] 7B
+    - [] 13B (launched killarney)
+  - [ ] Train synthetic SFT using TULU dataset
+    - [X] 1B
+    - [X] 7B
+    - [] 13B
+  - [] Train synthetic SFT on different datasets:
+    - [] 1B on Codeforces
+    - [X] 1B on Math
+
+- [ ] KD hyperparameter sensitivity (on 1B student)
+  - [ ] Temeperature Runs:
+    - [X] τ = 1.0
+    - [] τ = 2.0 (launched on Killarney)
+    - [] τ = 4.0 
+  - [ ] Alpha Runs:
+    - [ ] α = 0.3
+    - [ ] α = 0.5
+    - [ ] α = 0.8 (transferring to Trillium)
+
+- [ ] Synthetic SFT hyperparameter sensitivity (on 1B student)
+  - [ ] Vary max_new_tokens {256, 512, 1024} when generating synthetic data:
+    - 256
+        - [ ] synthetic data generation (launched on Trillium)
+        - [ ] train student on this dataset
+    - 512 
+        - [ ] synthetic data generation
+        - [ ] train student on this dataset
+    - 1024
+        - [X] synthetic data generation
+        - [X] train student on this dataset
+  - [ ] Vary dataset size: 
+    - [X] 3.5k student training
+    - [X] 7k student training
+
+
+maybe also answer the question where you vary the dataset size! Maybe KD doesn't need such a large dataset after al!
+
+
+- [ ] Evaluation suite for all final checkpoints
+  - [ ] For each trained student in the core 3 × 3 grid (and selected sensitivity runs), run **full evaluation** with energy logging on:
+    - [ ] AlpacaEval 2
+    - [ ] IFEval
+    - [ ] MT-Bench-101
+    - [ ] GSM8K
+    - [ ] MMLU
+  - [ ] Save benchmark scores + evaluation energy to a unified results table for Pareto plotting.
+
 

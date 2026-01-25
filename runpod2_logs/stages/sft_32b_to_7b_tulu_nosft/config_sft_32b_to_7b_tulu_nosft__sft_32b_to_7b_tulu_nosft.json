@@ -1,0 +1,121 @@
+{
+  "stage_name": "sft_32b_to_7b_tulu_nosft",
+  "stage_id": "sft_32b_to_7b_tulu_nosft",
+  "config": {
+    "experiment": {
+      "seed": 42,
+      "debug_mode": false,
+      "debug_max_steps": 40,
+      "name": "sft_32b_to_7b_tulu_nosft",
+      "description": "Data distillation: 32B teacher generates data, 7B student learns via SFT"
+    },
+    "data": {
+      "dataset_choice": "tulu",
+      "dataset_name": "allenai/tulu-3-sft-mixture",
+      "dataset_path": "/workspace/Energy/dataset/tulu-3-sft-mixture-preprocessed",
+      "tokenizer_name": "allenai/OLMo-2-1124-7B-SFT",
+      "max_sequence_length": 1024,
+      "pad_token_id": 100277,
+      "datasets": {
+        "tulu": {
+          "dataset_name": "allenai/tulu-3-sft-mixture",
+          "dataset_path": "/workspace/Energy/dataset/tulu-3-sft-mixture-preprocessed"
+        },
+        "codeforces": {
+          "dataset_name": "open-r1/codeforces-cots",
+          "dataset_subset": "solutions",
+          "dataset_path": "/workspace/Energy/dataset/open-r1-codeforces-preprocessed"
+        },
+        "math": {
+          "dataset_name": "open-r1/OpenR1-Math-220k",
+          "dataset_split": "train",
+          "dataset_path": "/workspace/Energy/dataset/openr1-math-220k-preprocessed"
+        }
+      }
+    },
+    "synthetic_data": {
+      "num_samples": 20000,
+      "max_gen_examples": 7000,
+      "generation": {
+        "temperature": 0.7,
+        "top_p": 0.9,
+        "max_new_tokens": 1024,
+        "decoding_strategy": "sampling",
+        "prompt_field": "messages"
+      },
+      "filtering": {
+        "enabled": true,
+        "min_length": 10,
+        "max_length": 1024
+      },
+      "synthetic_dataset_path": "/workspace/Energy/dataset/synthetic_tulu",
+      "use_existing": false
+    },
+    "training": {
+      "token_budget": 10000000000,
+      "batch_size": 4,
+      "eval_batch_size": 1,
+      "gradient_accumulation_steps": 16,
+      "optimizer": "adafactor",
+      "learning_rate": 5e-05,
+      "max_grad_norm": 1.0,
+      "num_warmup_steps": 100,
+      "schedule_type": "cosine",
+      "dtype": "bfloat16",
+      "num_epochs": 20,
+      "num_training_steps": 0,
+      "save_steps": 200,
+      "eval_steps": 100
+    },
+    "energy": {
+      "enabled": true,
+      "nvml_poll_interval_ms": 500,
+      "track_cpu": true,
+      "country_iso_code": "CAN",
+      "offline_mode": true,
+      "rapl_root": "/sys/class/powercap/intel-rapl",
+      "total_energy_policy": "measured"
+    },
+    "wandb": {
+      "enabled": true,
+      "project": "distillation-energy-benchmark",
+      "entity": null,
+      "run_name": "sft_32b_to_7b_tulu_nosft",
+      "log_interval": 10
+    },
+    "hardware": {
+      "assert_gpu_name": null,
+      "assert_gpu_count": null,
+      "assert_cpu_brand": null
+    },
+    "benchmark": {
+      "output_dir": "/workspace/Energy/model_log/olmo_benchmarks",
+      "model": "/workspace/Energy/model_log/energy_experiments/kd_32b_to_13b/checkpoints/checkpoint_epoch0_step13200.pt",
+      "model_type": "allenai/OLMo-2-1124-13B-SFT",
+      "subfolder_name": "olmo_benchmark_13b_trained_adafactor",
+      "mt_bench_101": {
+        "data_path": "benchmarks/mt_bench_101/mtbench101.jsonl"
+      },
+      "tasks": [
+        "core_9mcqa::olmes"
+      ]
+    },
+    "output": {
+      "run_dir": "/workspace/Energy/runpod2_logs",
+      "output_dir": "/workspace/Energy/model_log/energy_experiments/sft_32b_to_7b_nosft/",
+      "checkpoint_dir": "None",
+      "resume_from_checkpoint": false
+    },
+    "pipeline": "sft",
+    "model": {
+      "teacher": "allenai/OLMo-2-0325-32B-SFT",
+      "student": "allenai/OLMo-2-1124-7B",
+      "student_vocab_size": 100352
+    },
+    "num_samples": 0,
+    "test_size": 0.05,
+    "num_proc": 8,
+    "strip_think_blocks": true,
+    "code_only": false
+  }
+}

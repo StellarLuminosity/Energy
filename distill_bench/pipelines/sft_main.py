@@ -25,9 +25,13 @@ from distill_bench.core.checkpoint import SimpleCheckpointer
 
 def compute_sft_loss(model, batch, device):
     """Compute standard cross-entropy loss for SFT."""
-    input_ids = batch["input_ids"].to(device)
-    attention_mask = batch["attention_mask"].to(device)
-    labels = batch["labels"].to(device)
+    input_ids = batch["input_ids"]
+    attention_mask = batch["attention_mask"]
+    labels = batch["labels"]
+
+    input_ids = input_ids.to(device)
+    attention_mask = attention_mask.to(device)
+    labels = labels.to(device)
 
     outputs = model(
         input_ids=input_ids,
@@ -65,6 +69,7 @@ def train_epoch(
     recent_eval_losses,
     min_eval_loss,
     debug_batch_counter,
+    energy_tracker=None,
 ):
     """Train for one epoch with periodic evaluation and early stopping."""
     model.train()
@@ -84,6 +89,8 @@ def train_epoch(
         labels = batch["labels"].to(device)
         tokens_in_batch = (labels != -100).sum().item()
         total_tokens += tokens_in_batch
+        if energy_tracker:
+            energy_tracker.add_tokens(tokens_in_batch)
 
         # Backward and optimize
         loss.backward()
@@ -123,13 +130,15 @@ def train_epoch(
                     global_step=global_step,
                     loss=loss.item(),
                 )
+                if energy_tracker:
+                    energy_tracker.snapshot_stage(step=global_step, suffix="checkpoint")
 
             # Periodic evaluation
             if global_step > 0 and global_step % eval_steps == 0:
                 eval_loss = eval_model(model, eval_loader, device)
                 min_eval_loss = min(min_eval_loss, eval_loss)
                 recent_eval_losses.append(eval_loss)
-                if len(recent_eval_losses) > 3:
+                if len(recent_eval_losses) > 2:
                     recent_eval_losses.pop(0)
 
                 if use_wandb:
@@ -142,13 +151,13 @@ def train_epoch(
                         step=global_step,
                     )
 
-                # Early stopping: current eval loss worse than previous two
-                if len(recent_eval_losses) >= 3:
+                # Early stopping: current eval loss worse
+                if len(recent_eval_losses) >= 2:
                     current = recent_eval_losses[-1]
-                    prev_two = recent_eval_losses[-3:-1]
-                    if current > prev_two[0] and current > prev_two[1]:
+                    prev_two = recent_eval_losses[-2]
+                    if current > prev_two:
                         main_print(
-                            f"Early stopping triggered: eval loss {current:.4f} > previous two values {prev_two[0]:.4f}, {prev_two[1]:.4f}"
+                            f"Early stopping triggered: eval loss {current:.4f} > previous two values {prev_two}"
                         )
                         should_stop = True
                         break
@@ -250,7 +259,25 @@ def main(args):
     # Load or generate synthetic dataset
     main_print("Loading synthetic dataset...")
     synthetic_dataset = load_synthetic_dataset(config)
-    main_print(f"Synthetic dataset: {len(synthetic_dataset['train'])} train, {len(synthetic_dataset['test'])} eval")
+    train_len = len(synthetic_dataset["train"])
+    eval_len = len(synthetic_dataset["test"])
+    main_print(f"Synthetic dataset: {train_len} train, {eval_len} eval")
+
+    max_gen_examples = getattr(config, "max_gen_examples", None)
+    if max_gen_examples is not None:
+        max_gen_examples = int(max_gen_examples)
+        main_print(f"Subsampling synthetic dataset to at most {max_gen_examples} examples per split")
+        for split_name, split_ds in synthetic_dataset.items():
+            split_size = len(split_ds)
+            if split_size > max_gen_examples:
+                synthetic_dataset[split_name] = split_ds.shuffle(seed=config.seed).select(range(max_gen_examples))
+                main_print(f"  {split_name}: {split_size} -> {len(synthetic_dataset[split_name])}")
+            else:
+                main_print(f"  {split_name}: {split_size} (no subsample)")
+
+        train_len = len(synthetic_dataset["train"])
+        eval_len = len(synthetic_dataset["test"])
+        main_print(f"Post-subsample sizes: {train_len} train, {eval_len} eval")
 
     train_len = len(synthetic_dataset["train"])
     eval_len = len(synthetic_dataset["test"])
@@ -369,6 +396,7 @@ def main(args):
             recent_eval_losses,
             min_eval_loss,
             debug_batch_counter,
+            energy_tracker=energy_tracker,
         )
 
         total_tokens_processed += epoch_tokens
@@ -379,6 +407,7 @@ def main(args):
 
         # Evaluate
         eval_loss = eval_model(model, eval_loader, device)
+        min_eval_loss = min(min_eval_loss, eval_loss)
 
         main_print(f"Epoch {epoch} - Train Loss: {train_loss:.4f}, Eval Loss: {eval_loss:.4f}")
         main_print(f"Tokens processed this epoch: {epoch_tokens:,}, Total: {total_tokens_processed:,}")
@@ -406,6 +435,8 @@ def main(args):
             global_step=global_step,
             loss=eval_loss,
         )
+        if energy_tracker:
+            energy_tracker.snapshot_stage(step=global_step, suffix="checkpoint")
 
     if energy_tracker:
         energy_tracker.end_stage(tokens_processed=total_tokens_processed)

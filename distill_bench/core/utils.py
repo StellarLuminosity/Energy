@@ -168,6 +168,8 @@ class CustomPadCollator:
 # ==================================================
 def get_dataset(dataset_path):
     """Load dataset from path"""
+    # `datasets` and fsspec expect a string path; Path objects raise TypeError on protocol checks.
+    dataset_path = str(dataset_path)
     return datasets.load_from_disk(dataset_path)
 
 
