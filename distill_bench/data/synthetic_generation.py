@@ -108,11 +108,7 @@ def generate_synthetic_dataset(
             return
 
         prompt_lengths = [p["prompt_ids"].shape[0] for p in batch_prompts]
-        max_prompt_length = max(prompt_lengths)
-        max_new_tokens_for_batch = min(max_new_tokens, max_seq_len - max_prompt_length)
-        if max_new_tokens_for_batch <= 0:
-            batch_prompts = []
-            return
+        max_new_tokens_for_batch = max_new_tokens
 
         batch_input_ids = pad_sequence(
             [p["prompt_ids"] for p in batch_prompts],
@@ -137,20 +133,24 @@ def generate_synthetic_dataset(
 
             synthetic_labels = torch.full_like(output, fill_value=-100)
             synthetic_labels[prompt_length:] = output[prompt_length:]
+            output_attention_mask = torch.ones_like(output)
 
             if filtering_config.get("enabled", True):
                 min_length = filtering_config.get("min_length", 10)
                 max_length = filtering_config.get("max_length", max_seq_len)
                 response_length = len(generated_tokens)
                 total_length = len(output)
+                if total_length > max_length + 200:
+                    # Clamp to max_length instead of skipping long samples.
+                    output = output[:max_length]
+                    synthetic_labels = synthetic_labels[:max_length]
+                    output_attention_mask = output_attention_mask[:max_length]
+                    # Recompute generated_tokens length after clamping.
+                    generated_tokens = output[prompt_length:]
+                    response_length = len(generated_tokens)
                 if response_length < min_length:
-                    print(f"Response length shorter than min length - skipping idx {prompt_info['idx']}")
-                    continue
-                if total_length > max_length:
-                    print(f"Total length (prompt + response) is greater than max length - skipping idx {prompt_info['idx']}")
-                    continue
-
-            output_attention_mask = torch.ones_like(output)
+                    # Keep short generations but note it for visibility.
+                    print(f"Response length shorter than min length - keeping idx {prompt_info['idx']} (len={response_length})")
 
             synthetic_data["input_ids"].append(output.tolist())
             synthetic_data["attention_mask"].append(output_attention_mask.tolist())
@@ -189,8 +189,14 @@ def generate_synthetic_dataset(
                 prompt_attention_mask = attention_mask[:response_start]
                 prompt_length = prompt_ids.shape[0]
 
-                if prompt_length >= max_seq_len - 10:
-                    continue
+                # If the prompt is too long to leave room for a full generation, drop tokens from the front
+                # (keep the tail so the request stays coherent) to leave headroom.
+                headroom_for_prompt = max(max_seq_len - max_new_tokens, 1)
+                if prompt_length > headroom_for_prompt:
+                    trim_start = prompt_length - headroom_for_prompt
+                    prompt_ids = prompt_ids[trim_start:]
+                    prompt_attention_mask = prompt_attention_mask[trim_start:]
+                    prompt_length = prompt_ids.shape[0]
 
                 batch_prompts.append(
                     {

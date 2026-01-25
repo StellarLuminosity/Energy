@@ -1,0 +1,38 @@
+{
+  "experiment_id": "sft_32b_to_1b_tulu_256_20260125_113720",
+  "experiment_name": "sft_32b_to_1b_tulu_256",
+  "start_time": "2026-01-25T11:37:20.743465",
+  "end_time": "2026-01-25T14:22:27.896036",
+  "total_duration_seconds": 9903.494433164597,
+  "total_tokens_processed": 1432109,
+  "total_gpu_energy_joules": 3868879.813847115,
+  "total_cpu_energy_joules": 210087.7011214713,
+  "total_energy_joules": 4078967.514968586,
+  "total_energy_kwh": 1.1330465319357184,
+  "overall_joules_per_token": 2.8482242028844076,
+  "overall_tokens_per_second": 144.60643257436345,
+  "stages": {
+    "sft_32b_to_1b_tulu_256": {
+      "stage_id": "sft_32b_to_1b_tulu_256",
+      "stage_name": "sft_32b_to_1b_tulu_256",
+      "start_time": 1769359042.9394565,
+      "end_time": 1769368946.4338896,
+      "duration_seconds": 9903.494433164597,
+      "tokens_processed": 1432109,
+      "gpu_energy_joules": 3868879.813847115,
+      "gpu_avg_power_watts": 390.6580490307642,
+      "gpu_peak_power_watts": 540.894,
+      "total_codecarbon_energy_kwh": 1.1593292441425525,
+      "codecarbon_emissions_kg": 0.19713582266173205,
+      "codecarbon_cpu_energy_kwh": 0.05835769475596425,
+      "codecarbon_gpu_energy_kwh": 1.0744496653923648,
+      "codecarbon_ram_energy_kwh": 0.026521883994223176,
+      "cpu_energy_joules": 210087.7011214713,
+      "total_energy_joules": 4078967.514968586,
+      "total_energy_kwh": 1.1330465319357184,
+      "joules_per_token": 2.8482242028844076,
+      "kwh_total": 1.1330465319357184,
+      "tokens_per_second": 144.60643257436345
+    }
+  }
+}
