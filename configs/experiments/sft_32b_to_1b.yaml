@@ -6,7 +6,7 @@ pipeline: "sft"
 
 # Experiment identification
 experiment:
-  name: "sft_32b_to_1b_tulu_nosft"
+  name: "sft_32b_to_1b_tulu_3500"
   description: "Data distillation: 32B teacher generates data, 1B student learns via SFT"
 
 # Models
@@ -48,10 +48,10 @@ synthetic_data:
 
 # Output
 output:
-  output_dir: "/scratch/klambert/model_log/energy_experiments/sft_32b_to_1b_nosft/"
+  output_dir: "/scratch/klambert/model_log/energy_experiments/sft_32b_to_1b_3500/"
   checkpoint_dir: None
   resume_from_checkpoint: false
 
 # W&B override
 wandb:
-  run_name: "sft_32b_to_1b_tulu_nosft"
+  run_name: "sft_32b_to_1b_tulu_3500"
