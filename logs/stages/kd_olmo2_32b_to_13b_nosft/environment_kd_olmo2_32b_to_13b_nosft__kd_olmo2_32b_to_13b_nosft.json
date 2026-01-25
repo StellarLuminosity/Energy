@@ -1,5 +1,5 @@
 {
-  "hostname": "kn173",
+  "hostname": "kn176",
   "gpus": [
     {
       "index": 0,
@@ -18,13 +18,13 @@
     "physical_cores": 48,
     "logical_cores": 48,
     "max_frequency_mhz": 4000.0,
-    "current_frequency_mhz": 1190.2342500000002
+    "current_frequency_mhz": 1165.52775
   },
   "memory": {
-    "total_gb": 2015.4003448486328,
-    "available_gb": 1974.7204780578613,
-    "used_gb": 40.679866790771484,
-    "percent_used": 2.0
+    "total_gb": 2015.40034866333,
+    "available_gb": 1941.864761352539,
+    "used_gb": 73.53558731079102,
+    "percent_used": 3.6
   },
   "software": {
     "python_version": "3.10.13",
@@ -36,15 +36,15 @@
     "os_version": "6.8.0-54-generic"
   },
   "git_info": {
-    "commit_hash": "bbc6e9909e400ae8ca774791030f97b78fcf5864",
+    "commit_hash": "688dd1547570626332fd09d185988e6e30faf542",
     "branch": "main",
     "is_dirty": true,
     "remote_url": "https://github.com/StellarLuminosity/Energy.git"
   },
   "slurm_info": {
-    "job_id": "1974206",
+    "job_id": "1985519",
     "job_name": "nosft_kd_distill_13b",
-    "node_name": "kn173",
+    "node_name": "kn176",
     "partition": "gpubase_h100_b3",
     "num_nodes": "1",
     "cpus_per_task": "16",
