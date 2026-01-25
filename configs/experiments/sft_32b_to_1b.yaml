@@ -6,7 +6,7 @@ pipeline: "sft"
 
 # Experiment identification
 experiment:
-  name: "sft_32b_to_1b_tulu_3500"
+  name: "sft_32b_to_1b_tulu_pure"
   description: "Data distillation: 32B teacher generates data, 1B student learns via SFT"
 
 # Models
@@ -43,15 +43,15 @@ synthetic_data:
     # Additional filters can be added (e.g., perplexity threshold)
   
   # Paths
-  synthetic_dataset_path: "/scratch/klambert/dataset/synthetic_tulu"
+  synthetic_dataset_path: "/scratch/klambert/dataset/tulu-3-sft-mixture-preprocessed"
   use_existing: false  # If true, skip generation and use existing dataset
 
 # Output
 output:
-  output_dir: "/scratch/klambert/model_log/energy_experiments/sft_32b_to_1b_3500/"
+  output_dir: "/scratch/klambert/model_log/energy_experiments/sft_32b_to_1b_true/"
   checkpoint_dir: None
   resume_from_checkpoint: false
 
 # W&B override
 wandb:
-  run_name: "sft_32b_to_1b_tulu_3500"
+  run_name: "sft_32b_to_1b_tulu_true"
