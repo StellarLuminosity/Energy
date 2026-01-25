@@ -65,6 +65,7 @@ def train_epoch(
     recent_eval_losses,
     min_eval_loss,
     debug_batch_counter,
+    energy_tracker=None,
 ):
     """Train for one epoch with periodic evaluation and early stopping."""
     model.train()
@@ -84,6 +85,8 @@ def train_epoch(
         labels = batch["labels"].to(device)
         tokens_in_batch = (labels != -100).sum().item()
         total_tokens += tokens_in_batch
+        if energy_tracker:
+            energy_tracker.add_tokens(tokens_in_batch)
 
         # Backward and optimize
         loss.backward()
@@ -123,6 +126,8 @@ def train_epoch(
                     global_step=global_step,
                     loss=loss.item(),
                 )
+                if energy_tracker:
+                    energy_tracker.snapshot_stage(step=global_step, suffix="checkpoint")
 
             # Periodic evaluation
             if global_step > 0 and global_step % eval_steps == 0:
@@ -387,6 +392,7 @@ def main(args):
             recent_eval_losses,
             min_eval_loss,
             debug_batch_counter,
+            energy_tracker=energy_tracker,
         )
 
         total_tokens_processed += epoch_tokens
@@ -425,6 +431,8 @@ def main(args):
             global_step=global_step,
             loss=eval_loss,
         )
+        if energy_tracker:
+            energy_tracker.snapshot_stage(step=global_step, suffix="checkpoint")
 
     if energy_tracker:
         energy_tracker.end_stage(tokens_processed=total_tokens_processed)
