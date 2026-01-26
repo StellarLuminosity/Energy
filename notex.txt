@@ -60,8 +60,8 @@ Runs Checklist:
 - [ ] Synthetic SFT hyperparameter sensitivity (on 1B student)
   - [ ] Vary max_new_tokens {256, 512, 1024} when generating synthetic data:
     - 256
-        - [ ] synthetic data generation (launched on Trillium)
-        - [ ] train student on this dataset
+        - [X] synthetic data generation
+        - [ ] train student on this dataset (launched Trillium)
     - 512 
         - [ ] synthetic data generation
         - [ ] train student on this dataset
