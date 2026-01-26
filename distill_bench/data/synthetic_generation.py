@@ -108,9 +108,7 @@ def generate_synthetic_dataset(
             return
 
         prompt_lengths = [p["prompt_ids"].shape[0] for p in batch_prompts]
-        max_prompt_length = max(prompt_lengths)
-        # Allow shorter generations when prompts are long, but avoid dropping the batch.
-        max_new_tokens_for_batch = max(40, min(max_new_tokens, max_seq_len - max_prompt_length))
+        max_new_tokens_for_batch = max_new_tokens
 
         batch_input_ids = pad_sequence(
             [p["prompt_ids"] for p in batch_prompts],
@@ -142,7 +140,7 @@ def generate_synthetic_dataset(
                 max_length = filtering_config.get("max_length", max_seq_len)
                 response_length = len(generated_tokens)
                 total_length = len(output)
-                if total_length > max_length:
+                if total_length > max_length + 200:
                     # Clamp to max_length instead of skipping long samples.
                     output = output[:max_length]
                     synthetic_labels = synthetic_labels[:max_length]

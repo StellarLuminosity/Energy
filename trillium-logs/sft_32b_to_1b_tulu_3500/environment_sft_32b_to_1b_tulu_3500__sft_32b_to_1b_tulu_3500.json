@@ -1,0 +1,54 @@
+{
+  "hostname": "trig0006",
+  "gpus": [
+    {
+      "index": 0,
+      "name": "NVIDIA H100 80GB HBM3",
+      "memory_total_mb": 81559.0,
+      "memory_free_mb": 77721.5,
+      "driver_version": "570.172.08",
+      "cuda_version": "12.8",
+      "compute_capability": "9.0",
+      "power_limit_watts": 700.0
+    }
+  ],
+  "cpu": {
+    "brand": "AMD EPYC 9654 96-Core Processor",
+    "architecture": "x86_64",
+    "physical_cores": 96,
+    "logical_cores": 96,
+    "max_frequency_mhz": 2400.0,
+    "current_frequency_mhz": 3700.0240208333357
+  },
+  "memory": {
+    "total_gb": 755.566837310791,
+    "available_gb": 720.6262054443359,
+    "used_gb": 20.70940399169922,
+    "percent_used": 4.6
+  },
+  "software": {
+    "python_version": "3.11.5",
+    "pytorch_version": "2.6.0",
+    "cuda_version": "12.2",
+    "cudnn_version": "90201",
+    "transformers_version": "4.51.3",
+    "platform": "Linux",
+    "os_version": "5.14.0-570.52.1.el9_6.x86_64"
+  },
+  "git_info": {
+    "commit_hash": "9137db8f8337912a77508aebaea39214d653a1e6",
+    "branch": "main",
+    "is_dirty": true,
+    "remote_url": "https://github.com/StellarLuminosity/Energy.git"
+  },
+  "slurm_info": {
+    "job_id": "228511",
+    "job_name": "sft_subsample_3500",
+    "node_name": "trig0006",
+    "partition": "compute",
+    "num_nodes": "1",
+    "cpus_per_task": "16",
+    "gpus": "1",
+    "mem_per_node": "192500"
+  }
+}
