@@ -49,6 +49,56 @@ def infer_stage_role(stage_name: str) -> str:
 
 stage_df["stage_role"] = stage_df["stage_name"].apply(infer_stage_role)
 
+def load_config_metadata(root="."):
+    rows = []
+    for path in glob.glob(f"{root}/**/config_*.json", recursive=True):
+        with open(path) as f:
+            cfg = json.load(f)
+        stage_name = cfg["stage_name"]
+        exp_cfg = cfg["config"]["experiment"]
+        data_cfg = cfg["config"]["data"]
+        train_cfg = cfg["config"].get("training", {})
+        kd_cfg = cfg["config"].get("kd", {})
+
+        exp_name = exp_cfg["name"]
+        # heuristic: parse pipeline + student size from exp_name
+        # e.g. "kd_olmo2_32b_to_13b_nosft"
+        s = exp_name.lower()
+        if s.startswith("kd_"):
+            pipeline = "kd"
+        elif s.startswith("sft_"):
+            pipeline = "sft"
+        elif "synthetic" in s:
+            pipeline = "synthetic_sft"
+        else:
+            pipeline = "other"
+
+        # crude parse of student size from name; you can refine
+        student_size = None
+        if "to_1b" in s:
+            student_size = "1B"
+        elif "to_7b" in s:
+            student_size = "7B"
+        elif "to_13b" in s or "13b" in s:
+            student_size = "13B"
+
+        rows.append({
+            "exp_name": exp_name,
+            "stage_name": stage_name,
+            "pipeline": pipeline,
+            "student_size": student_size,
+            # KD hyperparams if present
+            "kd_temperature": kd_cfg.get("temperature"),
+            "kd_alpha": kd_cfg.get("alpha"),
+            # SFT hyperparams
+            "sft_max_new_tokens": train_cfg.get("max_new_tokens"),
+            "dataset_choice": data_cfg.get("dataset_choice"),
+        })
+
+    return pd.DataFrame(rows)
+
+cfg_meta = load_config_metadata("/path/to/your/log/root")
+
 
 
 
