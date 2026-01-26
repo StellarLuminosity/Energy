@@ -33,3 +33,32 @@ def load_all_experiment_summaries(root="."):
     return pd.DataFrame(rows)
 
 stage_df = load_all_experiment_summaries("/path/to/your/log/root")
+
+def infer_stage_role(stage_name: str) -> str:
+    s = stage_name.lower()
+    if "preprocess" in s:
+        return "teacher_preprocess"
+    if "synthetic" in s or "generation" in s:
+        return "teacher_generation"
+    if "logprob" in s or "logit" in s or "cache" in s:
+        return "teacher_logit_cache"
+    if "eval" in s or "benchmark" in s:
+        return "eval"
+    # default: main training stage
+    return "student_train"
+
+stage_df["stage_role"] = stage_df["stage_name"].apply(infer_stage_role)
+
+
+
+
+
+
+
+
+
+
+
+
+
+
