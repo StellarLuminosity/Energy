@@ -663,11 +663,12 @@ print(f"Saved {output} with {len(df)} rows.")
 # --------------------
 # ## Create Dataframe
 
-# In[28]:
+# In[ ]:
 
 
-import numpy as np
 from pathlib import Path
+import numpy as np
+import pandas as pd
 
 # Path to the aggregated stage metrics CSV
 if "output_path" in globals():
@@ -874,7 +875,7 @@ print(
 display(stage_df_clean.head())
 
 
-# In[29]:
+# In[ ]:
 
 
 # ## Tag stages, runs, and cells (Step 2)
@@ -1015,7 +1016,7 @@ display(
 )
 
 
-# In[30]:
+# In[ ]:
 
 
 # ## Aggregate pipeline-level metrics (Step 3)
@@ -1229,13 +1230,183 @@ print(
 )
 
 
-# In[31]:
+# In[ ]:
 
 
-# ## Helpers and core 3×3-style grid (Step 3b)
+from pathlib import Path
+import re
+from typing import Iterable
+import matplotlib as plt
 
-print("\n\n=== Step 3b: Helpers and core 3×3-style grid ===")
 
+# In[ ]:
+
+
+# -------------------------------------------------------------------------
+# Normalization helpers
+# -------------------------------------------------------------------------
+def _norm_str(x: object) -> str:
+    if x is None or (isinstance(x, float) and pd.isna(x)):
+        return ""
+    return str(x).strip()
+
+def _norm_key(x: object) -> str:
+    return _norm_str(x).lower()
+
+def _as_list(x):
+    if x is None:
+        return None
+    if isinstance(x, (list, tuple, set)):
+        return list(x)
+    return [x]
+
+def _ci_mask(series: pd.Series, values: list[str]) -> pd.Series:
+    vals = {_norm_key(v) for v in values}
+    return series.astype(str).str.strip().str.lower().isin(vals)
+
+
+# In[ ]:
+
+
+# --------------------------
+# Ensure required id columns exist
+# --------------------------
+def ensure_identifiers(stage_df: pd.DataFrame) -> pd.DataFrame:
+    df = stage_df.copy()
+
+    # Normalize some key cols if present
+    for c in ["pipeline", "dataset_choice", "stage_name", "source"]:
+        if c in df.columns:
+            df[c] = df[c].astype(str).str.strip()
+            df.loc[df[c].str.lower() == "nan", c] = np.nan
+            if c in {"pipeline", "dataset_choice", "stage_name", "source"}:
+                df[c] = df[c].str.lower()
+
+    # run_id
+    if "run_id" not in df.columns:
+        if "experiment_name" in df.columns:
+            df["run_id"] = df["experiment_name"].fillna(df.get("stage_name"))
+        else:
+            df["run_id"] = df.get("stage_name")
+
+    # cell_id
+    if "cell_id" not in df.columns:
+        needed = ["pipeline", "student_size", "dataset_choice"]
+        if all(c in df.columns for c in needed):
+            miss = df[needed].isna().any(axis=1)
+            df["cell_id"] = np.where(
+                miss,
+                np.nan,
+                df["pipeline"].astype(str).str.lower()
+                + "_"
+                + df["student_size"].astype(str)
+                + "_"
+                + df["dataset_choice"].astype(str).str.lower()
+            )
+        else:
+            df["cell_id"] = np.nan
+
+    return df
+
+
+def _safe_div(num, denom):
+    if denom is None or pd.isna(denom) or denom == 0:
+        return np.nan
+    return num / denom
+
+
+# In[ ]:
+
+
+# --------------------------
+# Stage -> run/cell aggregation
+# --------------------------
+STUDENT_ROLES = {"student_train", "train_summary"}
+TEACHER_ROLES = {"teacher_generation", "teacher_processing", "data_preprocess"}
+EVAL_ROLES = {"evaluation"}
+
+def aggregate_cell_metrics(stage_df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Aggregate stage-level rows into run-level/cell-level rows.
+    Output is grouped by: pipeline, student_size, dataset_choice, cell_id, run_id
+    """
+    df = ensure_identifiers(stage_df)
+
+    # stage_role must exist
+    if "stage_role" not in df.columns:
+        raise ValueError("aggregate_cell_metrics: stage_role missing. Run retag_stage_roles(...) first.")
+
+    group_cols = [c for c in ["pipeline","student_size","dataset_choice","cell_id","run_id"] if c in df.columns]
+    grouped = df.groupby(group_cols, dropna=False)
+
+    recs = []
+    for key, rows in grouped:
+        if not isinstance(key, tuple):
+            key = (key,)
+        rec = dict(zip(group_cols, key))
+
+        student_rows = rows[rows["stage_role"].isin(STUDENT_ROLES)]
+        teacher_rows = rows[rows["stage_role"].isin(TEACHER_ROLES)]
+        eval_rows    = rows[rows["stage_role"].isin(EVAL_ROLES)]
+        other_rows   = rows[~rows["stage_role"].isin(STUDENT_ROLES | TEACHER_ROLES | EVAL_ROLES)]
+
+        # Tokens/duration
+        student_tokens = student_rows["tokens_processed"].sum() if "tokens_processed" in rows.columns else np.nan
+        student_dur    = student_rows["duration_seconds"].sum() if "duration_seconds" in rows.columns else np.nan
+
+        # Energy kWh
+        student_kwh = student_rows["energy_kwh"].sum() if "energy_kwh" in rows.columns else np.nan
+        teacher_kwh = teacher_rows["energy_kwh"].sum() if "energy_kwh" in rows.columns else np.nan
+        eval_kwh    = eval_rows["energy_kwh"].sum()    if "energy_kwh" in rows.columns else np.nan
+        other_kwh   = other_rows["energy_kwh"].sum()   if "energy_kwh" in rows.columns else np.nan
+        total_kwh_all = rows["energy_kwh"].sum()       if "energy_kwh" in rows.columns else np.nan
+
+        # Energy Joules (effective)
+        student_j = student_rows["energy_joules_eff"].sum() if "energy_joules_eff" in rows.columns else np.nan
+        teacher_j = teacher_rows["energy_joules_eff"].sum() if "energy_joules_eff" in rows.columns else np.nan
+        eval_j    = eval_rows["energy_joules_eff"].sum()    if "energy_joules_eff" in rows.columns else np.nan
+        other_j   = other_rows["energy_joules_eff"].sum()   if "energy_joules_eff" in rows.columns else np.nan
+        total_j_all = rows["energy_joules_eff"].sum()       if "energy_joules_eff" in rows.columns else np.nan
+
+        # GPU/CPU (student-only by default)
+        student_gpu_kwh = student_rows["gpu_energy_kwh"].sum() if "gpu_energy_kwh" in rows.columns else np.nan
+        student_cpu_kwh = student_rows["cpu_energy_kwh"].sum() if "cpu_energy_kwh" in rows.columns else np.nan
+
+        tokens_per_sec_student = _safe_div(student_tokens, student_dur)
+        energy_j_per_token_total = _safe_div(total_j_all, student_tokens)
+        energy_j_per_token_student = _safe_div(student_j, student_tokens)
+
+        rec.update({
+            "student_tokens": student_tokens,
+            "student_duration_s": student_dur,
+            "student_kwh": student_kwh,
+            "teacher_kwh": teacher_kwh,
+            "eval_kwh": eval_kwh,
+            "other_kwh": other_kwh,
+            "total_kwh_all": total_kwh_all,
+            "student_energy_joules": student_j,
+            "teacher_energy_joules": teacher_j,
+            "eval_energy_joules": eval_j,
+            "other_energy_joules": other_j,
+            "total_energy_joules_all": total_j_all,
+            "student_gpu_kwh": student_gpu_kwh,
+            "student_cpu_kwh": student_cpu_kwh,
+            "tokens_per_sec_student": tokens_per_sec_student,
+            "energy_j_per_token_total": energy_j_per_token_total,
+            "energy_j_per_token_student": energy_j_per_token_student,
+        })
+        recs.append(rec)
+
+    return pd.DataFrame.from_records(recs)
+
+
+
+# In[ ]:
+
+
+# -------------------------------------------------------------------------
+# Patch A: case-insensitive filter_cells (fixes 7B vs 7b issues)
+# -------------------------------------------------------------------------
 def filter_cells(
     df: pd.DataFrame,
     pipeline: str | list[str] | None = None,
@@ -1243,812 +1414,570 @@ def filter_cells(
     dataset_choice: str | list[str] | None = None,
     run_id: str | list[str] | None = None,
     cell_id: str | list[str] | None = None,
+    *,
+    case_insensitive: bool = True,
 ) -> pd.DataFrame:
-    """
-    Convenience filter on the aggregated cell_metrics_df.
-
-    All filters are optional; each can be a single value or a list of values.
-    """
     out = df.copy()
+    pipeline = _as_list(pipeline)
+    student_size = _as_list(student_size)
+    dataset_choice = _as_list(dataset_choice)
+    run_id = _as_list(run_id)
+    cell_id = _as_list(cell_id)
 
-    def _normalize_filter(val):
-        if val is None:
-            return None
-        if isinstance(val, (list, tuple, set)):
-            return list(val)
-        return [val]
+    def _apply(col: str, vals: list[str] | None):
+        nonlocal out
+        if vals is None or col not in out.columns:
+            return
+        if case_insensitive:
+            out = out[_ci_mask(out[col], vals)]
+        else:
+            out = out[out[col].isin(vals)]
 
-    pipeline = _normalize_filter(pipeline)
-    student_size = _normalize_filter(student_size)
-    dataset_choice = _normalize_filter(dataset_choice)
-    run_id = _normalize_filter(run_id)
-    cell_id = _normalize_filter(cell_id)
+    _apply("pipeline", pipeline)
+    _apply("student_size", student_size)
+    _apply("dataset_choice", dataset_choice)
+    _apply("run_id", run_id)
+    _apply("cell_id", cell_id)
 
-    if pipeline is not None and "pipeline" in out.columns:
-        out = out[out["pipeline"].isin(pipeline)]
-    if student_size is not None and "student_size" in out.columns:
-        out = out[out["student_size"].isin(student_size)]
-    if dataset_choice is not None and "dataset_choice" in out.columns:
-        out = out[out["dataset_choice"].isin(dataset_choice)]
-    if run_id is not None and "run_id" in out.columns:
-        out = out[out["run_id"].isin(run_id)]
-    if cell_id is not None and "cell_id" in out.columns:
-        out = out[out["cell_id"].isin(cell_id)]
-
-    print(
-        f"[filter_cells] -> {len(out)} rows "
-        f"(from {len(df)} input rows)"
-    )
+    print(f"[filter_cells] -> {len(out)} rows (from {len(df)} input rows)")
     return out
 
 
+# In[ ]:
+
+
+# -------------------------------------------------------------------------
+# Patch B: stronger stage_role inference (teacher-side KD + caching patterns)
+# -------------------------------------------------------------------------
+STAGE_ROLE_OVERRIDES: dict[str, str] = {
+    # Example manual overrides:
+    # "logit_caching": "teacher_processing",
+}
+
+STAGE_ROLE_RULES: list[tuple[str, list[str]]] = [
+    ("teacher_generation", [r"synthetic.*generation", r"teacher.*generation"]),
+    ("teacher_processing", [r"logit", r"cache", r"teacher.*forward", r"teacher.*infer", r"distill.*teacher"]),
+    ("data_preprocess", [r"preprocess", r"tokeni[sz]e", r"build_.*dataset", r"dataset_.*prep"]),
+    ("evaluation", [r"\beval\b", r"gsm8k", r"mmlu", r"alpaca", r"ifeval", r"mt[-_]?bench"]),
+]
+
+def infer_stage_role_v2(row: pd.Series) -> str:
+    name = _norm_key(row.get("stage_name", ""))
+    pipeline = _norm_key(row.get("pipeline", ""))
+    source = _norm_key(row.get("source", ""))
+
+    if name in STAGE_ROLE_OVERRIDES:
+        return STAGE_ROLE_OVERRIDES[name]
+
+    for role, pats in STAGE_ROLE_RULES:
+        for pat in pats:
+            if re.search(pat, name):
+                return role
+
+    if pipeline in {"sft", "kd", "dpo", "true_sft", "synthetic_sft"}:
+        if source == "summary":
+            return "train_summary"
+        return "student_train"
+
+    if source == "summary":
+        return "summary_only"
+    return "other"
+
+def retag_stage_roles(stage_df: pd.DataFrame, *, inplace: bool = False) -> pd.DataFrame:
+    df = stage_df if inplace else stage_df.copy()
+    df["stage_role"] = df.apply(infer_stage_role_v2, axis=1)
+    return df
+
+
+# In[ ]:
+
+
+# --------------------------
+# run/cell -> core grid (9-row style)
+# --------------------------
 def build_core_grid(
-    df: pd.DataFrame,
+    cell_metrics_df: pd.DataFrame,
     primary_dataset: str | None = None,
     verbose: bool = True,
 ) -> pd.DataFrame:
     """
-    Aggregate run-level cell metrics into a single row per
-    (pipeline, student_size, dataset_choice).
-
-    This is the basis for the 3×3 grid table:
-        pipelines × student sizes (× dataset)
-
-    Metrics:
-        - total_student_tokens
-        - total_student_duration_s
-        - total_kwh_all
-        - student_kwh, teacher_kwh, eval_kwh, other_kwh
-        - tokens_per_sec_student_agg
-        - energy_j_per_token_total_agg
-        - energy_j_per_token_student_agg
-        - summed student/teacher/eval Joules
+    Collapse run-level rows into one row per (pipeline, student_size, dataset_choice).
+    This is what you use for the 3×3 table.
     """
-    work_df = df.copy()
+    df = cell_metrics_df.copy()
 
-    # Optionally restrict to a primary dataset, e.g. "tulu"
-    if primary_dataset is not None and "dataset_choice" in work_df.columns:
-        before = len(work_df)
-        work_df = work_df[work_df["dataset_choice"] == primary_dataset]
+    if primary_dataset is not None and "dataset_choice" in df.columns:
+        before = len(df)
+        df = df[df["dataset_choice"].astype(str).str.lower() == str(primary_dataset).lower()]
         if verbose:
-            print(
-                f"[build_core_grid] Filtered to dataset_choice == '{primary_dataset}': "
-                f"{before} -> {len(work_df)} rows"
-            )
+            print(f"[build_core_grid] dataset_choice={primary_dataset}: {before} -> {len(df)} rows")
 
-    # Group by pipeline × student_size × dataset_choice
-    group_cols = ["pipeline", "student_size"]
-    if "dataset_choice" in work_df.columns:
-        group_cols.append("dataset_choice")
+    group_cols = [c for c in ["pipeline","student_size","dataset_choice"] if c in df.columns]
+    grouped = df.groupby(group_cols, dropna=False)
 
-    group_cols = [c for c in group_cols if c in work_df.columns]
-
-    if verbose:
-        print("[build_core_grid] Grouping by:", group_cols)
-
-    grouped = work_df.groupby(group_cols, dropna=False)
-
-    grid_records = []
-
+    out = []
     for key, rows in grouped:
         if not isinstance(key, tuple):
             key = (key,)
         rec = dict(zip(group_cols, key))
 
-        # Aggregate tokens and duration (summing across runs)
-        student_tokens_total = rows["student_tokens"].sum()
-        student_duration_total = rows["student_duration_s"].sum()
+        tokens = rows["student_tokens"].sum()
+        dur_s  = rows["student_duration_s"].sum()
 
-        # Aggregate kWh
-        student_kwh_total = rows["student_kwh"].sum()
-        teacher_kwh_total = rows["teacher_kwh"].sum()
-        eval_kwh_total = rows["eval_kwh"].sum()
-        other_kwh_total = rows["other_kwh"].sum()
-        total_kwh_all = rows["total_kwh_all"].sum()
+        # Sum energies across runs
+        rec["runs_in_cell"] = len(rows)
+        rec["total_student_tokens"] = tokens
+        rec["total_student_duration_s"] = dur_s
 
-        # Aggregate Joules
-        student_j_total = rows["student_energy_joules"].sum()
-        teacher_j_total = rows["teacher_energy_joules"].sum()
-        eval_j_total = rows["eval_energy_joules"].sum()
-        other_j_total = rows["other_energy_joules"].sum()
-        total_j_all = rows["total_energy_joules_all"].sum()
+        rec["student_kwh"] = rows["student_kwh"].sum()
+        rec["teacher_kwh"] = rows["teacher_kwh"].sum()
+        rec["eval_kwh"]    = rows["eval_kwh"].sum()
+        rec["other_kwh"]   = rows["other_kwh"].sum()
+        rec["total_kwh_all"] = rows["total_kwh_all"].sum()
 
-        # Aggregate GPU/CPU energy for student stages
-        student_gpu_kwh_total = rows["student_gpu_kwh"].sum()
-        student_cpu_kwh_total = rows["student_cpu_kwh"].sum()
+        rec["student_energy_joules"] = rows["student_energy_joules"].sum()
+        rec["teacher_energy_joules"] = rows["teacher_energy_joules"].sum()
+        rec["eval_energy_joules"]    = rows["eval_energy_joules"].sum()
+        rec["other_energy_joules"]   = rows["other_energy_joules"].sum()
+        rec["total_energy_joules_all"] = rows["total_energy_joules_all"].sum()
 
-        # Recompute tokens/sec and J/token at this aggregated level
-        tokens_per_sec_student_agg = (
-            student_tokens_total / student_duration_total
-            if (pd.notna(student_duration_total) and student_duration_total > 0)
-            else np.nan
-        )
+        rec["student_gpu_kwh"] = rows["student_gpu_kwh"].sum()
+        rec["student_cpu_kwh"] = rows["student_cpu_kwh"].sum()
 
-        energy_j_per_token_total_agg = (
-            total_j_all / student_tokens_total
-            if (pd.notna(student_tokens_total) and student_tokens_total > 0)
-            else np.nan
-        )
+        # Recompute derived metrics at the aggregated level
+        tps = _safe_div(tokens, dur_s)
+        jpt_total = _safe_div(rec["total_energy_joules_all"], tokens)
+        jpt_student = _safe_div(rec["student_energy_joules"], tokens)
 
-        energy_j_per_token_student_agg = (
-            student_j_total / student_tokens_total
-            if (pd.notna(student_tokens_total) and student_tokens_total > 0)
-            else np.nan
-        )
+        # Provide both naming styles (plain + _agg)
+        rec["tokens_per_sec_student"] = tps
+        rec["tokens_per_sec_student_agg"] = tps
 
-        rec.update(
-            dict(
-                runs_in_cell=len(rows),
-                total_student_tokens=student_tokens_total,
-                total_student_duration_s=student_duration_total,
-                total_kwh_all=total_kwh_all,
-                student_kwh=student_kwh_total,
-                teacher_kwh=teacher_kwh_total,
-                eval_kwh=eval_kwh_total,
-                other_kwh=other_kwh_total,
-                total_energy_joules_all=total_j_all,
-                student_energy_joules=student_j_total,
-                teacher_energy_joules=teacher_j_total,
-                eval_energy_joules=eval_j_total,
-                other_energy_joules=other_j_total,
-                student_gpu_kwh=student_gpu_kwh_total,
-                student_cpu_kwh=student_cpu_kwh_total,
-                tokens_per_sec_student=tokens_per_sec_student_agg,
-                energy_j_per_token_total=energy_j_per_token_total_agg,
-                energy_j_per_token_student=energy_j_per_token_student_agg,
-            )
-        )
+        rec["energy_j_per_token_total"] = jpt_total
+        rec["energy_j_per_token_total_agg"] = jpt_total
 
-        grid_records.append(rec)
+        rec["energy_j_per_token_student"] = jpt_student
+        rec["energy_j_per_token_student_agg"] = jpt_student
 
-    grid_df = pd.DataFrame.from_records(grid_records)
+        out.append(rec)
 
+    grid = pd.DataFrame(out)
     if verbose:
-        print(
-            f"[build_core_grid] Created grid_df with {len(grid_df)} rows "
-            f"(from {len(work_df)} input rows)"
-        )
-        if "pipeline" in grid_df.columns:
-            print("  Pipelines:", grid_df["pipeline"].dropna().unique())
-        if "student_size" in grid_df.columns:
-            print("  Student sizes:", grid_df["student_size"].dropna().unique())
-        if "dataset_choice" in grid_df.columns:
-            print("  Datasets:", grid_df["dataset_choice"].dropna().unique())
-
-    return grid_df
-
-
-# You can change this to your primary headline dataset, e.g. "tulu"
-PRIMARY_DATASET_FOR_CORE_GRID = None  # e.g. "tulu"
-
-core_grid_df = build_core_grid(
-    cell_metrics_df,
-    primary_dataset=PRIMARY_DATASET_FOR_CORE_GRID,
-    verbose=True,
-)
-
-print("\n=== core_grid_df preview (for 3×3-style table) ===")
-cols_to_show = [
-    "pipeline",
-    "student_size",
-    "dataset_choice",
-    "runs_in_cell",
-    "total_student_tokens",
-    "total_student_duration_s",
-    "total_kwh_all",
-    "student_kwh",
-    "teacher_kwh",
-    "tokens_per_sec_student",
-    "energy_j_per_token_total",
-    "energy_j_per_token_student",
-]
-cols_to_show = [c for c in cols_to_show if c in core_grid_df.columns]
-display(core_grid_df[cols_to_show].head(20))
+        print(f"[build_core_grid] rows={len(grid)} groups={group_cols}")
+    return grid
 
 
 # In[ ]:
 
 
-# Example
-kd_7b_tulu_cells = filter_cells(
-    cell_metrics_df,
-    pipeline="kd",
-    student_size="7b",
-    dataset_choice="tulu",
-)
-
-
-# In[33]:
-
-
-# ## Utility: summarize arbitrary stage names (by name pattern)
-
-print("\n\n=== Utility: summarize selected stage_names ===")
-
-def summarize_stages_by_name(
-    df: pd.DataFrame,
-    stage_name_patterns: list[str],
-    use_contains: bool = True,
-) -> pd.DataFrame:
-    """
-    Sum energy + tokens for stages whose `stage_name` matches
-    any of the provided patterns.
-
-    Args:
-        df: stage-level DataFrame (e.g., stage_df_all or stage_df_clean)
-        stage_name_patterns: list of patterns, e.g.
-            ["logit_caching", "kd_32b_to_7b", "eval_gsm8k"]
-        use_contains: if True, pattern is substring; if False, exact match.
-
-    Returns:
-        DataFrame grouped by stage_name with:
-            - tokens_processed_sum
-            - duration_seconds_sum
-            - energy_kwh_sum
-            - energy_joules_eff_sum
-            - tokens_per_sec (recomputed)
-            - energy_j_per_token (recomputed)
-    """
-    if "stage_name" not in df.columns:
-        raise ValueError("summarize_stages_by_name: df must have a 'stage_name' column.")
-
-    patterns = list(stage_name_patterns)
-    mask = pd.Series(False, index=df.index)
-
-    for p in patterns:
-        if use_contains:
-            mask |= df["stage_name"].str.contains(p, na=False)
-        else:
-            mask |= (df["stage_name"] == p)
-
-    subset = df[mask].copy()
-    print(
-        f"[summarize_stages_by_name] Selected {len(subset)} rows "
-        f"matching patterns: {patterns}"
-    )
-
-    if subset.empty:
-        return pd.DataFrame()
-
-    group = subset.groupby("stage_name", dropna=False)
-    rows = []
-
-    for name, g in group:
-        tokens_sum = g["tokens_processed"].sum() if "tokens_processed" in g.columns else np.nan
-        dur_sum = g["duration_seconds"].sum() if "duration_seconds" in g.columns else np.nan
-        kwh_sum = g["energy_kwh"].sum() if "energy_kwh" in g.columns else np.nan
-        j_sum = g["energy_joules_eff"].sum() if "energy_joules_eff" in g.columns else np.nan
-
-        tokens_per_sec = (tokens_sum / dur_sum) if (pd.notna(dur_sum) and dur_sum > 0) else np.nan
-        energy_j_per_token = (j_sum / tokens_sum) if (pd.notna(tokens_sum) and tokens_sum > 0) else np.nan
-
-        rows.append(
-            dict(
-                stage_name=name,
-                rows_included=len(g),
-                tokens_processed_sum=tokens_sum,
-                duration_seconds_sum=dur_sum,
-                energy_kwh_sum=kwh_sum,
-                energy_joules_eff_sum=j_sum,
-                tokens_per_sec=tokens_per_sec,
-                energy_j_per_token=energy_j_per_token,
-            )
-        )
-
-    out = pd.DataFrame(rows).sort_values("stage_name").reset_index(drop=True)
-    print("[summarize_stages_by_name] Summary:")
-    display(out)
-    return out
-
-
-
-# In[ ]:
-
-
-# Example usage (commented out):
-# summarize_stages_by_name(stage_df_all, ["logit_caching", "kd_32b_to_7b", "eval"], use_contains=True)
-
-
-# In[34]:
-
-
-# ## Stage-wise breakdown & teacher vs student vs eval
-
-import matplotlib.pyplot as plt
-
-print("\n\n=== Stage-wise breakdown helpers ===")
-
-def stage_breakdown_for_cell(
+# -------------------------------------------------------------------------
+# Patch C: optional allocation of shared teacher stages to multiple student cells (model amortization)
+# -------------------------------------------------------------------------
+def allocate_shared_teacher_costs(
     stage_df: pd.DataFrame,
-    pipeline: str | None = None,
-    student_size: str | None = None,
-    dataset_choice: str | None = None,
-    run_id: str | None = None,
+    allocation_rules: list[dict],
+    *,
+    energy_cols: Iterable[str] = (
+        "energy_kwh",
+        "energy_joules_eff",
+        "gpu_energy_kwh",
+        "cpu_energy_kwh",
+        "duration_seconds",
+        "tokens_processed",
+    ),
 ) -> pd.DataFrame:
-    """
-    Compute stage-wise energy breakdown (kWh and fraction) for a given
-    (pipeline, student_size, dataset_choice, run_id) subset.
+    if not allocation_rules:
+        return stage_df
 
-    Returns a small DataFrame indexed by stage_role + stage_name.
-    """
-    df = stage_df.copy()
+    base = stage_df.copy()
+    if "stage_role" not in base.columns:
+        raise ValueError("allocate_shared_teacher_costs expects 'stage_role' (run retag_stage_roles first).")
 
-    if pipeline is not None and "pipeline" in df.columns:
-        df = df[df["pipeline"] == str(pipeline).lower()]
-    if student_size is not None and "student_size" in df.columns:
-        df = df[df["student_size"] == str(student_size)]
-    if dataset_choice is not None and "dataset_choice" in df.columns:
-        df = df[df["dataset_choice"] == str(dataset_choice).lower()]
-    if run_id is not None and "run_id" in df.columns:
-        df = df[df["run_id"] == run_id]
+    allocated_rows = []
+    for rule in allocation_rules:
+        pat = rule.get("match_stage_name_regex")
+        if not pat:
+            continue
 
-    if df.empty:
-        print("[stage_breakdown_for_cell] No rows match the specified filters.")
-        return pd.DataFrame()
+        role_match = rule.get("match_stage_role")
+        target_pipes = rule.get("target_pipelines", [])
+        target_sizes = rule.get("target_student_sizes", [])
+        target_ds = rule.get("target_dataset_choice", None)
+        mode = rule.get("mode", "amortize")
+        weight_override = rule.get("weight", None)
 
-    group_cols = ["stage_role"]
-    if "stage_name" in df.columns:
-        group_cols.append("stage_name")
+        mask = base["stage_name"].astype(str).str.lower().str.contains(pat.lower(), regex=True, na=False)
+        if role_match is not None:
+            mask = mask & (base["stage_role"] == role_match)
 
-    grouped = df.groupby(group_cols, dropna=False)
+        matched = base[mask].copy()
+        if matched.empty:
+            print(f"[allocate_shared_teacher_costs] No matches for rule pattern: {pat!r}")
+            continue
 
-    rows = []
-    for (role, name, *rest), g in grouped:
-        role = role
-        name = name
-        kwh = g["energy_kwh"].sum() if "energy_kwh" in g.columns else np.nan
-        j = g["energy_joules_eff"].sum() if "energy_joules_eff" in g.columns else np.nan
+        n_targets = max(1, len(target_pipes) * len(target_sizes))
+        if weight_override is not None:
+            weight = float(weight_override)
+        else:
+            weight = 1.0 if mode == "full" else 1.0 / float(n_targets)
 
-        rows.append(
-            dict(
-                stage_role=role,
-                stage_name=name,
-                energy_kwh=kwh,
-                energy_joules_eff=j,
-            )
+        for _, r in matched.iterrows():
+            for p in target_pipes:
+                for s in target_sizes:
+                    rr = r.copy()
+                    rr["pipeline"] = p
+                    rr["student_size"] = s
+                    if target_ds is not None:
+                        rr["dataset_choice"] = target_ds
+                    rr["allocation_weight"] = weight
+                    rr["allocated_from_stage_name"] = r.get("stage_name", None)
+                    rr["is_allocated"] = True
+
+                    for c in energy_cols:
+                        if c in rr.index and pd.notna(rr[c]):
+                            rr[c] = rr[c] * weight
+
+                    allocated_rows.append(rr)
+
+        print(
+            f"[allocate_shared_teacher_costs] Matched {len(matched)} stage rows for {pat!r}; "
+            f"created {len(matched) * n_targets} allocated rows (mode={mode}, weight={weight:g})."
         )
 
-    out = pd.DataFrame(rows)
-    total_kwh = out["energy_kwh"].sum()
-    out["fraction_of_total_kwh"] = (
-        out["energy_kwh"] / total_kwh if (pd.notna(total_kwh) and total_kwh > 0) else np.nan
-    )
-    out = out.sort_values("energy_kwh", ascending=False).reset_index(drop=True)
+    if not allocated_rows:
+        return base
 
-    print(
-        "[stage_breakdown_for_cell] Breakdown for "
-        f"pipeline={pipeline}, student_size={student_size}, "
-        f"dataset_choice={dataset_choice}, run_id={run_id}"
-    )
-    print(f"Total energy_kwh: {total_kwh:.4f}")
-    display(out)
+    alloc_df = pd.DataFrame(allocated_rows)
+    out = pd.concat([base, alloc_df], ignore_index=True)
+    out["is_allocated"] = out.get("is_allocated", False).fillna(False)
+    return out
+
+def rebuild_aggregates(stage_df: pd.DataFrame, *, teacher_alloc_rules: list[dict] | None = None):
+    """
+    stage_df -> retag roles -> optional teacher allocation -> cell_metrics_df -> core_grid_df
+    Returns: (stage_df2, cell_metrics_df2, core_grid_df2)
+    """
+    df2 = retag_stage_roles(stage_df, inplace=False)
+    if teacher_alloc_rules:
+        df2 = allocate_shared_teacher_costs(df2, teacher_alloc_rules)
+
+    cell_df2 = aggregate_cell_metrics(df2)
+    core_df2 = build_core_grid(cell_df2, primary_dataset=None, verbose=False)
+    return df2, cell_df2, core_df2
+
+
+# In[ ]:
+
+
+# -------------------------------------------------------------------------
+# Patch D: nicer totals + fractions (train-only vs all)
+# -------------------------------------------------------------------------
+def add_total_variants(core_df: pd.DataFrame) -> pd.DataFrame:
+    out = core_df.copy()
+    for col in ["student_kwh", "teacher_kwh", "eval_kwh", "other_kwh", "total_kwh_all"]:
+        if col not in out.columns:
+            out[col] = np.nan
+
+    out["total_kwh_train_only"] = out["student_kwh"] + out["teacher_kwh"]
+    out["teacher_frac_train_only"] = out["teacher_kwh"] / out["total_kwh_train_only"].replace({0: np.nan})
+    out["eval_frac_of_total"] = out["eval_kwh"] / out["total_kwh_all"].replace({0: np.nan})
     return out
 
 
-def plot_teacher_student_eval_bar(
-    df: pd.DataFrame,
-    title: str = "Teacher vs Student vs Eval Energy (kWh)",
-    figsize=(8, 5),
-):
-    """
-    Given a small DataFrame with columns:
-        label, student_kwh, teacher_kwh, eval_kwh, other_kwh
-    produce a stacked bar chart.
-    """
-    required = ["label", "student_kwh", "teacher_kwh", "eval_kwh", "other_kwh"]
-    missing = [c for c in required if c not in df.columns]
-    if missing:
-        print(f"[plot_teacher_student_eval_bar] Missing columns: {missing}")
-        return
-
-    x = np.arange(len(df))
-    width = 0.6
-
-    fig, ax = plt.subplots(figsize=figsize)
-
-    bottom = np.zeros(len(df))
-    for col, legend_label in [
-        ("teacher_kwh", "Teacher"),
-        ("student_kwh", "Student"),
-        ("eval_kwh", "Eval"),
-        ("other_kwh", "Other"),
-    ]:
-        vals = df[col].fillna(0.0).to_numpy()
-        ax.bar(x, vals, width, bottom=bottom, label=legend_label)
-        bottom += vals
-
-    ax.set_xticks(x)
-    ax.set_xticklabels(df["label"], rotation=45, ha="right")
-    ax.set_ylabel("Energy (kWh)")
-    ax.set_title(title)
-    ax.legend()
-    ax.grid(axis="y", linestyle="--", alpha=0.5)
-    plt.tight_layout()
-    plt.show()
+# In[ ]:
 
 
-def build_teacher_student_eval_comparison_from_core(
-    core_df: pd.DataFrame,
-    selector: pd.DataFrame | None = None,
-) -> pd.DataFrame:
-    """
-    Build a compact table for teacher vs student vs eval energy from core_grid_df.
+# -------------------------------------------------------------------------
+# Patch E: improved Pareto plot with actual student-size colors + legend
+# -------------------------------------------------------------------------
+PIPELINE_DISPLAY = {"sft": "SFT", "kd": "KD", "true_sft": "Synthetic SFT", "synthetic_sft": "Synthetic SFT"}
+PIPELINE_MARKERS = {"sft": "o", "kd": "s", "true_sft": "D", "synthetic_sft": "D"}
 
-    Optionally pass a pre-filtered selector DataFrame (subset of core_grid_df).
-    """
-    work = selector if selector is not None else core_df
-    if work.empty:
-        print("[build_teacher_student_eval_comparison_from_core] Empty input.")
-        return pd.DataFrame()
-
-    rows = []
-    for _, row in work.iterrows():
-        label_parts = []
-        if "pipeline" in row:
-            label_parts.append(str(row["pipeline"]))
-        if "student_size" in row:
-            label_parts.append(str(row["student_size"]))
-        if "dataset_choice" in row and pd.notna(row["dataset_choice"]):
-            label_parts.append(str(row["dataset_choice"]))
-        label = " ".join(label_parts)
-
-        rows.append(
-            dict(
-                label=label,
-                student_kwh=row.get("student_kwh", np.nan),
-                teacher_kwh=row.get("teacher_kwh", np.nan),
-                eval_kwh=row.get("eval_kwh", np.nan),
-                other_kwh=row.get("other_kwh", np.nan),
-                total_kwh=row.get("total_kwh_all", np.nan),
-            )
-        )
-
-    out = pd.DataFrame(rows)
-    print("[build_teacher_student_eval_comparison_from_core] Table:")
-    display(out)
-    return out
-
-
-def compute_gpu_cpu_share_for_core(core_df: pd.DataFrame) -> pd.DataFrame:
-    """
-    Compute GPU vs CPU energy share for student stages in core_grid_df.
-    """
-    df = core_df.copy()
-    if not {"student_gpu_kwh", "student_cpu_kwh"}.issubset(df.columns):
-        print("[compute_gpu_cpu_share_for_core] Required columns missing.")
-        return df
-
-    total_student = df["student_gpu_kwh"].fillna(0.0) + df["student_cpu_kwh"].fillna(0.0)
-    df["student_gpu_share"] = np.where(
-        total_student > 0,
-        df["student_gpu_kwh"].fillna(0.0) / total_student,
-        np.nan,
-    )
-    df["student_cpu_share"] = np.where(
-        total_student > 0,
-        df["student_cpu_kwh"].fillna(0.0) / total_student,
-        np.nan,
-    )
-
-    print("\n[compute_gpu_cpu_share_for_core] GPU/CPU share:")
-    cols = [
-        "pipeline",
-        "student_size",
-        "dataset_choice",
-        "student_gpu_kwh",
-        "student_cpu_kwh",
-        "student_gpu_share",
-        "student_cpu_share",
-    ]
-    cols = [c for c in cols if c in df.columns]
-    display(df[cols].head(20))
-    return df
-
-# Example usage (commented out):
-# comparison_table = build_teacher_student_eval_comparison_from_core(core_grid_df)
-# plot_teacher_student_eval_bar(comparison_table)
-# core_grid_with_gpu_cpu = compute_gpu_cpu_share_for_core(core_grid_df)
-
-
-# In[35]:
-
-
-# ## Pareto frontier utilities (energy vs quality)
-
-print("\n\n=== Pareto frontier helpers ===")
-
-def mark_pareto_frontier(
+def plot_energy_quality_pareto_v2(
     df: pd.DataFrame,
     energy_col: str,
     quality_col: str,
-) -> pd.DataFrame:
-    """
-    Add a boolean column 'pareto_optimal' to df indicating which rows are
-    on the Pareto frontier: no other row has BOTH lower (or equal) energy
-    AND higher (or equal) quality, with at least one strict inequality.
-
-    Returns a copy of df with the new column.
-    """
-    if energy_col not in df.columns or quality_col not in df.columns:
-        print(f"[mark_pareto_frontier] Missing columns {energy_col} or {quality_col}")
-        return df.copy()
-
-    work = df[[energy_col, quality_col]].to_numpy()
-    n = work.shape[0]
-    pareto = np.ones(n, dtype=bool)
-
-    for i in range(n):
-        if not pareto[i]:
-            continue
-        ei, qi = work[i]
-        if pd.isna(ei) or pd.isna(qi):
-            pareto[i] = False
-            continue
-        for j in range(n):
-            if i == j:
-                continue
-            ej, qj = work[j]
-            if pd.isna(ej) or pd.isna(qj):
-                continue
-            # Check if j dominates i: lower or equal energy and higher or equal quality,
-            # with at least one strict inequality
-            if (ej <= ei) and (qj >= qi) and ((ej < ei) or (qj > qi)):
-                pareto[i] = False
-                break
-
-    df_out = df.copy()
-    df_out["pareto_optimal"] = pareto
-    print(
-        f"[mark_pareto_frontier] Marked {pareto.sum()} Pareto-optimal points "
-        f"out of {n}."
-    )
-    return df_out
-
-
-def plot_energy_quality_pareto(
-    df: pd.DataFrame,
-    energy_col: str,
-    quality_col: str,
+    *,
+    title: str | None = None,
     pipeline_col: str = "pipeline",
     student_size_col: str = "student_size",
-    title: str | None = None,
+    label_col: str | None = None,
+    savepath: str | Path | None = None,
     figsize=(7, 5),
+    annotate_pareto: bool = False,
 ):
-    """
-    Scatter plot of energy vs quality with Pareto frontier highlighting.
-
-    Expects df to already have 'pareto_optimal' column (from mark_pareto_frontier).
-    """
-    required = [energy_col, quality_col]
+    required = [energy_col, quality_col, "pareto_optimal"]
     missing = [c for c in required if c not in df.columns]
     if missing:
-        print(f"[plot_energy_quality_pareto] Missing columns: {missing}")
-        return
-
-    if "pareto_optimal" not in df.columns:
-        print("[plot_energy_quality_pareto] 'pareto_optimal' column missing; call mark_pareto_frontier first.")
+        print(f"[plot_energy_quality_pareto_v2] Missing columns: {missing}")
         return
 
     fig, ax = plt.subplots(figsize=figsize)
 
-    # Non-Pareto points
-    mask_pareto = df["pareto_optimal"].fillna(False)
-    non_pareto = df[~mask_pareto]
-    pareto = df[mask_pareto]
+    student_vals = sorted(df[student_size_col].dropna().unique(), key=lambda x: _norm_key(x))
+    palette = plt.rcParams["axes.prop_cycle"].by_key().get("color", []) or ["C0","C1","C2","C3","C4","C5"]
+    color_map = {s: palette[i % len(palette)] for i, s in enumerate(student_vals)}
 
-    # Encode pipeline as marker and student_size as color via simple mapping
-    pipeline_vals = non_pareto[pipeline_col].dropna().unique() if pipeline_col in df.columns else []
-    student_vals = non_pareto[student_size_col].dropna().unique() if student_size_col in df.columns else []
+    for (p, s), sub in df.groupby([pipeline_col, student_size_col], dropna=False):
+        if sub.empty:
+            continue
+        marker = PIPELINE_MARKERS.get(_norm_key(p), "o")
+        color = color_map.get(s, None)
 
-    marker_map = {p: m for p, m in zip(pipeline_vals, ["o", "s", "D", "^", "v", "P"])}
-    color_map = {s: i for i, s in enumerate(student_vals)}
+        non_p = sub[~sub["pareto_optimal"].fillna(False)]
+        par = sub[sub["pareto_optimal"].fillna(False)]
 
-    def _scatter(subset, edgecolors=None, linewidths=0.5, alpha=0.8, zorder=2):
-        for _, row in subset.iterrows():
-            e = row[energy_col]
-            q = row[quality_col]
-            if pd.isna(e) or pd.isna(q):
-                continue
-            marker = marker_map.get(row.get(pipeline_col), "o")
-            color_idx = color_map.get(row.get(student_size_col), 0)
-            ax.scatter(
-                e,
-                q,
-                marker=marker,
-                s=40,
-                edgecolors=edgecolors,
-                linewidths=linewidths,
-                alpha=alpha,
-                zorder=zorder,
-            )
+        ax.scatter(non_p[energy_col], non_p[quality_col], marker=marker, c=color, s=40, alpha=0.45, edgecolors="none")
+        ax.scatter(
+            par[energy_col], par[quality_col],
+            marker=marker, c=color, s=80, alpha=0.95,
+            edgecolors="black", linewidths=1.2,
+            label=f"{PIPELINE_DISPLAY.get(_norm_key(p), p)} • {s}",
+        )
 
-    # Plot non-Pareto
-    _scatter(non_pareto, edgecolors=None, linewidths=0.5, alpha=0.5, zorder=1)
-
-    # Plot Pareto with edge highlight
-    _scatter(pareto, edgecolors="black", linewidths=1.2, alpha=0.9, zorder=3)
+        if annotate_pareto and label_col and label_col in par.columns:
+            for _, r in par.iterrows():
+                ax.annotate(str(r[label_col]), (r[energy_col], r[quality_col]), xytext=(4,4),
+                            textcoords="offset points", fontsize=8)
 
     ax.set_xlabel(energy_col)
     ax.set_ylabel(quality_col)
     ax.set_title(title or f"Energy vs Quality ({energy_col} vs {quality_col})")
     ax.grid(True, linestyle="--", alpha=0.5)
+
+    handles, labels = ax.get_legend_handles_labels()
+    if labels:
+        ax.legend(loc="best", fontsize=8, frameon=True)
+
     plt.tight_layout()
+    if savepath is not None:
+        savepath = Path(savepath)
+        savepath.parent.mkdir(parents=True, exist_ok=True)
+        fig.savefig(savepath, bbox_inches="tight")
+        print(f"[plot_energy_quality_pareto_v2] Saved: {savepath}")
     plt.show()
 
-# Example usage (after you have eval metrics merged in):
-# gsm_df = mark_pareto_frontier(core_grid_df, energy_col="total_kwh_all", quality_col="gsm8k_acc")
-# plot_energy_quality_pareto(gsm_df, "total_kwh_all", "gsm8k_acc", title="GSM8K: Energy vs Accuracy")
+
+# In[ ]:
 
 
-# In[36]:
+# --------------------------
+# Pareto frontier
+# --------------------------
+def mark_pareto_frontier(df: pd.DataFrame, energy_col: str, quality_col: str) -> pd.DataFrame:
+    """
+    Minimization in energy_col, maximization in quality_col.
+    Marks pareto_optimal True/False.
+    """
+    out = df.copy()
+    out["pareto_optimal"] = False
+
+    sub = out[[energy_col, quality_col]].copy()
+    sub = sub.dropna()
+    idxs = sub.index.to_list()
+
+    e = sub[energy_col].to_numpy()
+    q = sub[quality_col].to_numpy()
+
+    pareto = np.ones(len(sub), dtype=bool)
+    for i in range(len(sub)):
+        if not pareto[i]:
+            continue
+        dominates = (e <= e[i]) & (q >= q[i]) & ((e < e[i]) | (q > q[i]))
+        if np.any(dominates):
+            pareto[i] = False
+
+    out.loc[idxs, "pareto_optimal"] = pareto
+    return out
 
 
-# ## Evaluation metrics merge + LaTeX / CSV exports
+# In[ ]:
 
-print("\n\n=== Eval metrics + export helpers ===")
 
-def merge_eval_metrics(
-    base_df: pd.DataFrame,
-    eval_df: pd.DataFrame,
-    on: list[str] | str = "run_id",
-    suffixes=("", "_eval"),
+# --------------------------
+# Eval merge helper
+# --------------------------
+def merge_eval_metrics(base_df: pd.DataFrame, eval_df: pd.DataFrame, on="run_id") -> pd.DataFrame:
+    if eval_df is None or len(eval_df) == 0:
+        return base_df
+    return base_df.merge(eval_df, on=on, how="left")
+
+
+# In[ ]:
+
+
+# -------------------------------------------------------------------------
+# Patch F: headline 9-row grid builder + LaTeX/CSV export wrapper
+# -------------------------------------------------------------------------
+def make_headline_grid(
+    core_df: pd.DataFrame,
+    *,
+    dataset_choice: str | None = "tulu",
+    pipelines: list[str] | None = None,
+    student_sizes: list[str] | None = None,
+    include_eval: bool = True,
 ) -> pd.DataFrame:
-    """
-    Merge evaluation metrics into base_df (cell_metrics_df or core_grid_df).
+    df = core_df.copy()
+    if dataset_choice is not None and "dataset_choice" in df.columns:
+        df = df[df["dataset_choice"].astype(str).str.lower() == dataset_choice.lower()]
 
-    `eval_df` should contain columns like:
-        run_id, gsm8k_acc, mmlu_acc, alpacaeval_winrate, ifeval_score, ...
+    pipelines = pipelines or ["sft", "kd", "true_sft"]
+    student_sizes = student_sizes or ["1B", "7B", "13B"]
+    df = filter_cells(df, pipeline=pipelines, student_size=student_sizes, case_insensitive=True)
 
-    Args:
-        base_df: DataFrame with at least the key columns.
-        eval_df: DataFrame with metrics.
-        on: column name or list of column names to merge on.
-    """
-    merged = base_df.merge(eval_df, how="left", on=on, suffixes=suffixes)
-    print(
-        f"[merge_eval_metrics] Merged eval metrics: base {len(base_df)} rows, "
-        f"eval {len(eval_df)} rows -> merged {len(merged)} rows"
-    )
-    return merged
+    df = add_total_variants(df)
+    df["headline_total_kwh"] = df["total_kwh_all"] if include_eval else df["total_kwh_train_only"]
 
+    want = [
+        "pipeline","student_size","dataset_choice",
+        "total_student_tokens",
+        "headline_total_kwh",
+        "total_kwh_train_only",
+        "teacher_kwh","teacher_frac_train_only",
+        "tokens_per_sec_student_agg",
+        "energy_j_per_token_total_agg","energy_j_per_token_student_agg",
+        # optional eval cols if merged
+        "gsm8k_acc","mmlu_acc","alpacaeval_winrate","ifeval_score",
+    ]
+    want = [c for c in want if c in df.columns]
+    df = df[want].copy()
 
-def export_table_to_latex_and_csv(
-    df: pd.DataFrame,
-    cols: list[str],
-    latex_path: str,
-    csv_path: str | None = None,
-    float_format: str = "%.3f",
-    index: bool = False,
+    if "pipeline" in df.columns:
+        df["pipeline"] = df["pipeline"].map(lambda p: PIPELINE_DISPLAY.get(_norm_key(p), p))
+    return df
+
+def export_headline_tables(
+    core_df: pd.DataFrame,
+    *,
+    out_dir: str | Path = "tables",
+    dataset_choice: str | None = "tulu",
+    include_eval: bool = True,
+    basename: str = "energy_grid",
 ):
-    """
-    Export a DataFrame slice to LaTeX and optionally CSV.
+    out_dir = Path(out_dir)
+    out_dir.mkdir(parents=True, exist_ok=True)
 
-    Args:
-        df: the full DataFrame.
-        cols: columns to include in the table.
-        latex_path: path to .tex file.
-        csv_path: optional path to .csv file.
-    """
-    subset = df[cols].copy()
-    print(f"[export_table_to_latex_and_csv] Exporting {len(subset)} rows to {latex_path}")
-    subset.to_latex(
-        latex_path,
-        float_format=float_format,
-        index=index,
-        escape=True,
+    tbl = make_headline_grid(core_df, dataset_choice=dataset_choice, include_eval=include_eval)
+
+    # save CSV
+    csv_path = out_dir / f"{basename}.csv"
+    tbl.to_csv(csv_path, index=False)
+    print(f"[export_headline_tables] Wrote CSV: {csv_path}")
+
+    # save LaTeX (uses your existing helper if present)
+    if "export_table_to_latex_and_csv" in globals():
+        export_table_to_latex_and_csv(
+            tbl,
+            out_path_prefix=str(out_dir / basename),
+            latex_caption=f"Energy/throughput summary ({dataset_choice})",
+            latex_label=f"tab:{basename}",
+            float_format="%.4g",
+        )
+    else:
+        tex_path = out_dir / f"{basename}.tex"
+        tex_path.write_text(tbl.to_latex(index=False, float_format="%.4g"), encoding="utf-8")
+        print(f"[export_headline_tables] Wrote LaTeX: {tex_path}")
+
+    return tbl
+
+
+# In[ ]:
+
+
+# -------------------------------------------------------------------------
+# Optional convenience loaders
+# -------------------------------------------------------------------------
+def load_eval_metrics_csv(path: str | Path = "eval_metrics.csv") -> pd.DataFrame:
+    path = Path(path)
+    if not path.exists():
+        print(f"[load_eval_metrics_csv] Not found: {path} (returning empty df)")
+        return pd.DataFrame()
+    df = pd.read_csv(path)
+    print(f"[load_eval_metrics_csv] Loaded {len(df)} rows from {path}")
+    return df
+
+def load_overrides_csv(path: str | Path = "overrides.csv") -> pd.DataFrame:
+    path = Path(path)
+    if not path.exists():
+        print(f"[load_overrides_csv] Not found: {path} (returning empty df)")
+        return pd.DataFrame()
+    df = pd.read_csv(path)
+    print(f"[load_overrides_csv] Loaded {len(df)} rows from {path}")
+    return df
+
+
+# ---
+# ## Example Commands
+
+# In[ ]:
+
+
+# Example: amortize synthetic tulu generation across 3 student sizes for Synthetic SFT
+teacher_alloc_rules = [
+    dict(
+        match_stage_name_regex=r"synthetic_tulu_generation",
+        match_stage_role="teacher_generation",
+        target_pipelines=["true_sft"],
+        target_student_sizes=["1B", "7B", "13B"],
+        target_dataset_choice="tulu",
+        mode="amortize",  # change to "full" for worst-case accounting
     )
-    if csv_path is not None:
-        print(f"[export_table_to_latex_and_csv] Exporting CSV to {csv_path}")
-        subset.to_csv(csv_path, index=index)
+]
 
-    display(subset.head(20))
+stage_df_v2, cell_metrics_df_v2, core_grid_df_v2 = rebuild_aggregates(
+    stage_df_all,
+    teacher_alloc_rules=teacher_alloc_rules,
+)
 
-
-# Example usage for your 3×3 headline table (adjust cols as needed):
-# headline_cols = [
-#     "pipeline",
-#     "student_size",
-#     "dataset_choice",
-#     "total_student_tokens",
-#     "total_kwh_all",
-#     "energy_j_per_token_total",
-#     "tokens_per_sec_student",
-#     "gsm8k_acc",
-#     "mmlu_acc",
-#     "alpacaeval_winrate",
-# ]
-# headline_cols = [c for c in headline_cols if c in core_grid_df.columns]
-# export_table_to_latex_and_csv(
-#     core_grid_df,
-#     cols=headline_cols,
-#     latex_path="tables/core_3x3_grid.tex",
-#     csv_path="tables/core_3x3_grid.csv",
-# )
+core_grid_df_v2 = add_total_variants(core_grid_df_v2)
+display(core_grid_df_v2.head(20))
 
 
-# In[37]:
+# In[ ]:
 
 
-# ## Manual overrides (for correcting / adding results)
+# Merge evaluation metrics (once I have them)
+eval_df = load_eval_metrics_csv("eval_metrics.csv")
 
-print("\n\n=== Manual overrides helper ===")
+# Option A: merge on run_id (best if eval is per-run)
+cell_with_eval = merge_eval_metrics(cell_metrics_df_v2, eval_df, on="run_id")
 
-def apply_overrides(
-    base_df: pd.DataFrame,
-    overrides_df: pd.DataFrame,
-    key_cols: list[str],
-) -> pd.DataFrame:
-    """
-    Apply overrides to base_df using key_cols as the identifier.
+# Option B: merge on pipeline/student_size/dataset_choice (if eval is per cell)
+# cell_with_eval = merge_eval_metrics(core_grid_df_v2, eval_df, on=["pipeline","student_size","dataset_choice"])
 
-    For each row in overrides_df:
-        - find matching row(s) in base_df by key_cols
-        - overwrite non-null values in overrides_df into base_df
 
-    If an override row does not match any base row, it is appended.
-    """
-    base = base_df.copy()
-    ov = overrides_df.copy()
+# In[ ]:
 
-    for col in key_cols:
-        if col not in base.columns:
-            raise ValueError(f"apply_overrides: key column '{col}' missing from base_df.")
-        if col not in ov.columns:
-            raise ValueError(f"apply_overrides: key column '{col}' missing from overrides_df.")
 
-    base["_override_key"] = base[key_cols].astype(str).agg("||".join, axis=1)
-    ov["_override_key"] = ov[key_cols].astype(str).agg("||".join, axis=1)
+# Export the headline 9-row table (Latex + CSV)
+headline_tbl = export_headline_tables(
+    core_grid_df_v2,
+    out_dir="tables",
+    dataset_choice="tulu",   # swap to "math", "codeforces", etc.
+    include_eval=True,
+    basename="energy_grid_tulu",
+)
 
-    override_keys = set(ov["_override_key"].unique())
-    base_keys = set(base["_override_key"].unique())
+display(headline_tbl)
 
-    to_update = override_keys & base_keys
-    to_add = override_keys - base_keys
 
-    print(
-        f"[apply_overrides] {len(to_update)} rows will be updated, "
-        f"{len(to_add)} rows will be appended."
-    )
+# In[ ]:
 
-    # Update existing rows
-    for key in to_update:
-        base_mask = base["_override_key"] == key
-        ov_row = ov[ov["_override_key"] == key].iloc[0]
 
-        for col in ov.columns:
-            if col in ("_override_key",) + tuple(key_cols):
-                continue
-            val = ov_row[col]
-            if pd.notna(val):
-                base.loc[base_mask, col] = val
+# Pareto Frontier
+# Mark pareto points (run-level or cell-level)
+pareto_df = mark_pareto_frontier(
+    cell_with_eval,  # or core_grid_df_v2 if it has quality metrics
+    energy_col="total_kwh_all",
+    quality_col="gsm8k_acc",
+)
 
-    # Append new rows
-    new_rows = []
-    for key in to_add:
-        ov_row = ov[ov["_override_key"] == key].iloc[0].to_dict()
-        # Ensure all columns exist in base
-        for col in base.columns:
-            ov_row.setdefault(col, np.nan)
-        new_rows.append(ov_row)
-
-    if new_rows:
-        base = pd.concat([base, pd.DataFrame(new_rows)[base.columns]], ignore_index=True)
-
-    # Cleanup
-    base = base.drop(columns=["_override_key"], errors="ignore")
-
-    print("[apply_overrides] Overrides applied. New shape:", base.shape)
-    return base
-
-# Example usage:
-# overrides_df = pd.DataFrame([
-#     {
-#         "pipeline": "kd",
-#         "student_size": "7b",
-#         "dataset_choice": "tulu",
-#         "total_kwh_all": 123.456,  # corrected value
-#         "gsm8k_acc": 0.745,       # manually entered
-#     },
-# ])
-# core_grid_corrected = apply_overrides(core_grid_df, overrides_df, key_cols=["pipeline", "student_size", "dataset_choice"])
+plot_energy_quality_pareto_v2(
+    pareto_df,
+    energy_col="total_kwh_all",
+    quality_col="gsm8k_acc",
+    title="GSM8K: Energy vs Quality (Pareto highlighted)",
+    label_col="run_id",  # optional
+    savepath="figures/pareto_gsm8k_kwh.pdf",
+)
 
