@@ -606,12 +606,9 @@ class EnergyTracker:
         stage_dir = self._stage_dirs.get(stage_id, self.stages_dir / safe_stage_id)
         stage_dir.mkdir(parents=True, exist_ok=True)
         stage_path = stage_dir / f"{safe_stage_id}.json"
-        stage_path_root = self.stages_dir / f"{safe_stage_id}.json"
         payload = stage_metrics.to_dict(include_power_samples=True)
         payload["nvml_poll_interval_ms"] = self.nvml_poll_interval_ms
         _write_json(stage_path, payload)
-        if stage_path_root != stage_path:
-            _write_json(stage_path_root, payload)
 
         print(f"[EnergyTracker] Ended stage: {stage_id}")
         print(f"  Duration: {stage_metrics.duration_seconds:.2f}s")
@@ -686,9 +683,6 @@ class EnergyTracker:
         payload["snapshot_step"] = step
         payload["snapshot_time"] = datetime.now().isoformat()
         _write_json(snapshot_path, payload)
-        stage_path_root = self.stages_dir / snapshot_filename
-        if stage_path_root != snapshot_path:
-            _write_json(stage_path_root, payload)
 
         print(f"[EnergyTracker] Snapshot saved for stage '{stage_id}' at step {step}: {snapshot_path}")
         return snapshot_path
