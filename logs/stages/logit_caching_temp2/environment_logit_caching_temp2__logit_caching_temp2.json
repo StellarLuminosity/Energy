@@ -1,0 +1,54 @@
+{
+  "hostname": "kn176",
+  "gpus": [
+    {
+      "index": 0,
+      "name": "NVIDIA H100 80GB HBM3",
+      "memory_total_mb": 81559.0,
+      "memory_free_mb": 81089.875,
+      "driver_version": "570.148.08",
+      "cuda_version": "12.8",
+      "compute_capability": "9.0",
+      "power_limit_watts": 700.0
+    }
+  ],
+  "cpu": {
+    "brand": "Intel(R) Xeon(R) Gold 6442Y",
+    "architecture": "x86_64",
+    "physical_cores": 48,
+    "logical_cores": 48,
+    "max_frequency_mhz": 4000.0,
+    "current_frequency_mhz": 1231.2666875000002
+  },
+  "memory": {
+    "total_gb": 2015.40034866333,
+    "available_gb": 1962.0488395690918,
+    "used_gb": 53.35150909423828,
+    "percent_used": 2.6
+  },
+  "software": {
+    "python_version": "3.10.13",
+    "pytorch_version": "2.8.0+cu128",
+    "cuda_version": "12.8",
+    "cudnn_version": "91002",
+    "transformers_version": "4.56.2",
+    "platform": "Linux",
+    "os_version": "6.8.0-54-generic"
+  },
+  "git_info": {
+    "commit_hash": "c18c8dd5bb487eae122667d95c984f6660a48751",
+    "branch": "main",
+    "is_dirty": true,
+    "remote_url": "https://github.com/StellarLuminosity/Energy.git"
+  },
+  "slurm_info": {
+    "job_id": "1985933",
+    "job_name": "logit_caching_t2",
+    "node_name": "kn176",
+    "partition": "gpubase_h100_b3",
+    "num_nodes": "1",
+    "cpus_per_task": "16",
+    "gpus": "1",
+    "mem_per_node": "122880"
+  }
+}
