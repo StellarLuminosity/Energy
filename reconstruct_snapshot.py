@@ -1,11 +1,12 @@
 import json
 import csv
 from pathlib import Path
+from datetime import datetime
 
 # ==========================
 # CONFIG: SET THIS PATH
 # ==========================
-RUN_DIR = Path("/home/klambert/projects/aip-craffel/klambert/Energy/logs/stages/kd_olmo2_32b_to_1b_nosft")
+RUN_DIR = Path("/home/klambert/projects/aip-craffel/klambert/Energy/logs/stages/kd_olmo2_32b_to_13b_nosft")
 
 OUTPUT_NAME = "experiment_summary.json"
 

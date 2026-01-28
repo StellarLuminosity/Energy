@@ -32,27 +32,27 @@ Runs Checklist:
     - [X] Coding synthetic set (e.g., Codeforces-CoTS style).
   - [X] Generate and cache teacher logits for TULU dataset from 32B-SFT model
 
-- [ ] **Core 3 × 3 grid (pipelines × student sizes)**  
+- [X] **Core 3 × 3 grid (pipelines × student sizes)**  
   For each student ∈ {1B, 7B, 13B}, with fixed training budget, seq len 1024, same optimizer/schedule:
   - [X] Train **Baseline SFT** (no teacher) on TULU-3 SFT mixture.
-  - [ ] Train **KD Proper** using cached teacher logits on TULU-3.
-    - [] 1B (launched killarney)
-    - [] 7B
-    - [] 13B (launched killarney)
-  - [ ] Train synthetic SFT using TULU dataset
+  - [X] Train **KD Proper** using cached teacher logits on TULU-3.
     - [X] 1B
     - [X] 7B
-    - [] 13B
-  - [] Train synthetic SFT on different datasets:
-    - [] 1B on Codeforces
+    - [X] 13B
+  - [X] Train synthetic SFT using TULU dataset
+    - [X] 1B
+    - [X] 7B
+    - [X] 13B
+  - [X] Train synthetic SFT on different datasets:
+    - [X] 1B on Codeforces
     - [X] 1B on Math
 
 - [ ] KD hyperparameter sensitivity (on 1B student)
-  - [ ] Temeperature Runs:
+  - [X] Temeperature Runs:
     - [X] τ = 1.0
-    - [] τ = 2.0 (launched on Killarney)
-    - [] τ = 4.0 
-  - [ ] Alpha Runs:
+    - [X] τ = 2.0 (launched on Killarney)
+    - [X] τ = 4.0 
+  - [X] Alpha Runs:
     - [ ] α = 0.3
     - [ ] α = 0.5
     - [ ] α = 0.8 (transferring to Trillium)
@@ -61,17 +61,21 @@ Runs Checklist:
   - [ ] Vary max_new_tokens {256, 512, 1024} when generating synthetic data:
     - 256
         - [X] synthetic data generation
-        - [ ] train student on this dataset (launched Trillium)
+        - [X] train student on this dataset (launched Trillium)
     - 512 
-        - [ ] synthetic data generation
-        - [ ] train student on this dataset
+        - [X] synthetic data generation
+        - [X] train student on this dataset
     - 1024
         - [X] synthetic data generation
         - [X] train student on this dataset
-  - [ ] Vary dataset size: 
+  - [X] Vary dataset size: 
     - [X] 3.5k student training
     - [X] 7k student training
 
+- [] True runs
+  - [] SFT 1B
+  - [] SFT 7B
+  - [] SFT 13B
 
 maybe also answer the question where you vary the dataset size! Maybe KD doesn't need such a large dataset after al!
 
