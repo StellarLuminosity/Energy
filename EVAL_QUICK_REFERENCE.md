@@ -1,5 +1,11 @@
 # Quick Reference: Evaluating Checkpoints
 
+## Install (evaluation extras)
+
+```bash
+pip install -e .[eval]
+```
+
 ## Basic Usage
 
 ```bash
@@ -76,9 +82,7 @@ Perplexity: 10.44
 ## OLMo benchmark script (AlpacaEval 2, GSM8K, MMLU, IFEval, MT-Bench-101)
 
 Dependencies (install as needed):
-- `lm-eval` for GSM8K/MMLU/IFEval (`pip install lm-eval`)
-- `alpaca_eval` for AlpacaEval 2 (`pip install alpaca_eval`)
-- `mt-bench-101` repo for MT-Bench-101 (https://github.com/mtbench101/mt-bench-101)
+- `pip install -e .[eval]` installs lm-eval, alpaca_eval, jsonlines, and mt-bench-101 from the official repo.
 
 Usage:
 ```bash
@@ -96,6 +100,10 @@ python distill_bench/data/olmo_benchmark.py --config <cfg.yaml> \
 # Run MT-Bench-101 subset
 python distill_bench/data/olmo_benchmark.py --config <cfg.yaml> \
   --tasks mt_bench_101 --max-samples 4 --run-dir /tmp/bench_mt
+
+# Example eval-only config (HF model, tiny sample limits)
+python distill_bench/data/olmo_benchmark.py --config configs/experiments/eval_olmo2_1b.yaml \
+  --tasks gsm8k,mmlu --max-samples 1 --run-dir /tmp/bench_smoke
 ```
 
 Outputs:

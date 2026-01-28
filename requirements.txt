@@ -12,9 +12,6 @@ codecarbon
 nvidia-ml-py
 psutil
 PyYAML>=6.0
-black>=23.0.0
-pytest>=7.0.0
-tornado==6.5.1
 tqdm==4.67.1
 traitlets==5.14.3
 triton==3.2.0
@@ -27,3 +24,8 @@ xxhash==3.5.0
 yarl==1.20.0
 wandb
 
+# Optional evaluation extras (install with: pip install -e .[eval])
+# lm-eval==0.4.2
+# alpaca_eval==0.4.7
+# jsonlines>=4.0.0
+# mt-bench-101 @ git+https://github.com/mtbench101/mt-bench-101.git

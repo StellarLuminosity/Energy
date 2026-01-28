@@ -10,7 +10,7 @@ configs/
 └── experiments/
     ├── kd_7b_to_1b.yaml              # Knowledge Distillation
     ├── sft_7b_to_1b.yaml             # Data Distillation (SFT)
-    └── dpo_7b_to_1b.yaml             # Preference Distillation (DPO)
+    └── eval_olmo2_1b.yaml            # Eval-only harness example
 ```
 
 ## Usage
@@ -73,6 +73,7 @@ Each experiment config specifies:
 - `model`: teacher and student models
 - Pipeline-specific hyperparameters
 - `output.output_dir`: Where to save results
+- `benchmark.*`: Defaults for the evaluation harness (model to score, output dir, tasks)
 
 ### KD Config (`kd_7b_to_1b.yaml`)
 - `distillation.alpha`: CE/KL loss weighting
@@ -105,7 +106,19 @@ distillation:
 
 output:
   output_dir: "/scratch/user/my_experiment"
+
+# Optional: defaults for evaluation harness
+benchmark:
+  output_dir: "/scratch/user/benchmarks"
+  model: "/scratch/user/my_experiment/final_model/hf_format"  # or an HF id
+  model_type: "allenai/OLMo-2-0425-1B-SFT"
+  subfolder_name: "my_experiment_benchmark"
+  tasks:
+    - "gsm8k"
+    - "mmlu"
+    - "ifeval"
+    - "alpaca_eval"
+    - "mt_bench_101"
 ```
 
 All other settings inherit from `base.yaml`.
-
