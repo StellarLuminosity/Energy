@@ -6,7 +6,7 @@ pipeline: "kd"
 
 # Experiment identification
 experiment:
-  name: "kd_olmo2_32b_to_1b_nosft"
+  name: "kd_olmo2_32b_to_1b_alpha08"
   description: "Logit KD from 32B to 1B with top-100 cached teacher logprobs"
 
 # Models
@@ -22,7 +22,7 @@ data:
 # KD-specific hyperparameters
 distillation:
   # Loss weighting: total_loss = alpha * CE + (1-alpha) * KL
-  alpha: 0.5  # 0.5 = equal weight to CE and KL
+  alpha: 0.8  # 0.5 = equal weight to CE and KL
   
   # Temperature for KL divergence
   temperature: 1.0
@@ -33,10 +33,10 @@ distillation:
 
 # Output
 output:
-  output_dir: "/scratch/klambert/model_log/energy_experiments/kd_32b_to_1b_nosft"
+  output_dir: "/scratch/klambert/model_log/energy_experiments/kd_32b_to_1b_alpha08"
   checkpoint_dir: None
   resume_from_checkpoint: false
 
 # W&B override
 wandb:
-  run_name: "kd_32b_to_1b_nosft"
+  run_name: "kd_32b_to_1b_alpha08"
