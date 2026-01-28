@@ -22,12 +22,21 @@ import numpy as np
 
 
 def infer_power_column(df: pd.DataFrame) -> str:
-    """Guess which column holds GPU power in Watts."""
-    candidates = ["power_watts", "gpu_power_watts", "power", "gpu_power"]
+    """Guess which column holds GPU or total power in Watts."""
+    candidates = [
+        "total_power_w",      # prefer total if present
+        "gpu_0_power_w",      # single-GPU logger format
+        "power_watts",
+        "gpu_power_watts",
+        "power",
+        "gpu_power",
+    ]
     for c in candidates:
         if c in df.columns:
             return c
-    raise ValueError(f"Could not find a power column in {list(df.columns)}; tried {candidates}")
+    raise ValueError(
+        f"Could not find a power column in {list(df.columns)}; tried {candidates}"
+    )
 
 
 def infer_time_column(df: pd.DataFrame) -> Optional[str]:
