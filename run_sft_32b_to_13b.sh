@@ -1,18 +1,17 @@
 #!/bin/bash
 #SBATCH --job-name=sft_tulu_32b_to_13b
-#SBATCH --output=/scratch/klambert/run_logs/%x_%j.out                
-#SBATCH --error=/scratch/klambert/run_logs/%x_%j.err                                            
-#SBATCH --partition=compute
-#SBATCH --gpus-per-node=1 
+#SBATCH --output=/scratch/$USER/run_logs/%x_%j.out
+#SBATCH --error=/scratch/$USER/run_logs/%x_%j.err
+#SBATCH --partition=<partition>
+#SBATCH --gpus-per-node=1
 #SBATCH --cpus-per-task=16
 #SBATCH --export=NONE
-#SBATCH --account=def-lylan                                
+#SBATCH --account=<account>
 #SBATCH --time=1-00:00:00
 
 # Unified experiment launcher for KD/SFT/DPO pipelines (single-GPU)
-# 1 H100:        srun -c 16 --gres=gpu:h100:1 --partition=gpubase_h100_b5 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
-# 1 L40:         srun -c 1 --gres=gpu:l40s:1 --partition=gpubase_l40s_b2 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
-# CPU-only:      srun -c 16 --partition=gpubase_h100_b1 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
+# 1x GPU:       srun -c 16 --gres=gpu:1 --partition=<partition> --mem=120GB --pty --time=3:00:00 --account=<account> bash
+# CPU-only:     srun -c 16 --partition=<partition> --mem=120GB --pty --time=3:00:00 --account=<account> bash
 # Example override of run_dir:
 #   bash run_pipeline.sh configs/experiments/dpo_32b_to_13b.yaml --run-dir /tmp/my_run
 
@@ -46,7 +45,7 @@ export OPENBLAS_NUM_THREADS="$OMP_NUM_THREADS"
 export NUMEXPR_NUM_THREADS="$OMP_NUM_THREADS"
 
 # Huggingface Settings:
-export HF_HOME=/scratch/klambert/hf_cache
+export HF_HOME=${HF_HOME:-/scratch/$USER/hf_cache}
 export HF_DATASETS_OFFLINE=1
 export HF_HUB_OFFLINE=1
 export TRANSFORMERS_OFFLINE=1
@@ -65,7 +64,7 @@ export WANDB_PROJECT="${WANDB_PROJECT:-$SLURM_JOB_NAME}"
 # Load modules
 module load StdEnv/2023
 module load gcc python/3.11 arrow/21
-source /home/klambert/.venv/bin/activate
+source .venv/bin/activate
 
 # Show which Python we're actually running and whether torch is visible
 echo "Python in batch job:"

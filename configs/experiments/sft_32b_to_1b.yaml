@@ -43,12 +43,12 @@ synthetic_data:
     # Additional filters can be added (e.g., perplexity threshold)
   
   # Paths
-  synthetic_dataset_path: "/scratch/klambert/dataset/tulu-3-sft-mixture-preprocessed"
+  synthetic_dataset_path: "/path/to/datasets/tulu-3-sft-mixture-preprocessed"
   use_existing: false  # If true, skip generation and use existing dataset
 
 # Output
 output:
-  output_dir: "/scratch/klambert/model_log/energy_experiments/sft_32b_to_1b_true/"
+  output_dir: "/path/to/model_log/energy_experiments/sft_32b_to_1b_true/"
   checkpoint_dir: None
   resume_from_checkpoint: false
 

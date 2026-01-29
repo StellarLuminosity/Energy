@@ -44,12 +44,12 @@ synthetic_data:
     # Additional filters can be added (e.g., perplexity threshold)
   
   # Paths
-  synthetic_dataset_path: "/scratch/klambert/dataset/synthetic_tulu"
+  synthetic_dataset_path: "/path/to/datasets/synthetic_tulu"
   use_existing: false  # If true, skip generation and use existing dataset
 
 # Output
 output:
-  output_dir: "/scratch/klambert/model_log/energy_experiments/sft_32b_to_7b_nosft/"
+  output_dir: "/path/to/model_log/energy_experiments/sft_32b_to_7b_nosft/"
   checkpoint_dir: None
   resume_from_checkpoint: false
   

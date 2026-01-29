@@ -472,7 +472,7 @@ def main():
             "No benchmark.model configured. Please set benchmark.model in your YAML "
             "(either a Hugging Face id like 'allenai/OLMo-2-1124-7B-SFT' or a local "
             "HF-format directory like "
-            "'/scratch/.../kd_32b_to_1b_adamw/final_model/hf_format')."
+            "'/path/to/kd_32b_to_1b_adamw/final_model/hf_format')."
         )
 
     raw_tasks = _resolve_tasks(args.tasks, getattr(config, "benchmark_tasks", None))

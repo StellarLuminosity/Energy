@@ -11,22 +11,22 @@ experiment:
 data:
   dataset_choice: "tulu"  # One of: tulu, codeforces, math
   dataset_name: "allenai/tulu-3-sft-mixture"
-  dataset_path: "/scratch/klambert/dataset/tulu-3-sft-mixture-preprocessed"
+  dataset_path: "/path/to/datasets/tulu-3-sft-mixture-preprocessed"
   tokenizer_name: "allenai/OLMo-2-1124-7B-SFT"
   max_sequence_length: 1024
   pad_token_id: 100277  # OLMo-2 pad token
   datasets:
     tulu:
       dataset_name: "allenai/tulu-3-sft-mixture"
-      dataset_path: "/scratch/klambert/dataset/tulu-3-sft-mixture-preprocessed"
+      dataset_path: "/path/to/datasets/tulu-3-sft-mixture-preprocessed"
     codeforces:
       dataset_name: "open-r1/codeforces-cots"
       dataset_subset: "solutions"
-      dataset_path: "/scratch/klambert/dataset/open-r1-codeforces-preprocessed"
+      dataset_path: "/path/to/datasets/open-r1-codeforces-preprocessed"
     math:
       dataset_name: "open-r1/OpenR1-Math-220k"
       dataset_split: "train"
-      dataset_path: "/scratch/klambert/dataset/openr1-math-220k-preprocessed"
+      dataset_path: "/path/to/datasets/openr1-math-220k-preprocessed"
 
 # Synthetic data generation defaults
 synthetic_data:
@@ -93,11 +93,11 @@ hardware:
 
 benchmark:
   # Root folder for all benchmark runs.
-  output_dir: "/scratch/klambert/model_log/olmo_benchmarks"
+  output_dir: "/path/to/model_log/olmo_benchmarks"
   # Default model to evaluate. This can be either:
   #  - a Hugging Face id: "allenai/OLMo-2-1124-7B-SFT"
   #  - or a local HF-format directory path with config.json, model.safetensors, etc.
-  model: "/scratch/klambert/model_log/energy_experiments/kd_32b_to_13b/checkpoints/checkpoint_epoch0_step13200.pt" # "allenai/OLMo-2-0325-32B-SFT"
+  model: "/path/to/model_log/energy_experiments/kd_32b_to_13b/checkpoints/checkpoint_epoch0_step13200.pt" # "allenai/OLMo-2-0325-32B-SFT"
   model_type: 'allenai/OLMo-2-1124-13B-SFT'
   subfolder_name: "olmo_benchmark_13b_trained_adafactor"
   mt_bench_101:
@@ -109,5 +109,4 @@ benchmark:
   # - "olmo_2_heldout::olmes"
 
 output:
-  run_dir: "/home/klambert/projects/aip-craffel/klambert/Energy/killarney_logs"
-
+  run_dir: "./logs"

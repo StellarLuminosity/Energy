@@ -17,7 +17,7 @@ model:
 
 # Data (KD uses cached teacher logits)
 data:
-  dataset_teacher_logprobs: "/scratch/klambert/dataset/logprob_cache/teacher_logprobs"
+  dataset_teacher_logprobs: "/path/to/logprob_cache/teacher_logprobs"
 
 # KD-specific hyperparameters
 distillation:
@@ -29,11 +29,11 @@ distillation:
   
   # Logit caching settings (already done, for reference)
   top_k_logits: 100  # Top-100 cached teacher logits
-  logprob_cache_path: "/scratch/klambert/dataset/logprob_cache"
+  logprob_cache_path: "/path/to/logprob_cache"
 
 # Output
 output:
-  output_dir: "/scratch/klambert/model_log/energy_experiments/kd_32b_to_1b_alpha08"
+  output_dir: "/path/to/model_log/energy_experiments/kd_32b_to_1b_alpha08"
   checkpoint_dir: None
   resume_from_checkpoint: false
 

@@ -219,10 +219,10 @@ if __name__ == "__main__":
         epilog="""
 Examples:
   # Distributed checkpoint (directory):
-  python kd_eval.py --config configs/experiments/kd_7b_to_1b.yaml --model_path /scratch/klambert/model_log/singular/checkpoints/checkpoint_epoch0_step5000
+  python kd_eval.py --config configs/experiments/kd_7b_to_1b.yaml --model_path /path/to/model_log/singular/checkpoints/checkpoint_epoch0_step5000
   
   # Final model (.pt file):
-  python kd_eval.py --config configs/experiments/kd_7b_to_1b.yaml --model_path /scratch/klambert/model_log/singular/final_model/model.pt
+  python kd_eval.py --config configs/experiments/kd_7b_to_1b.yaml --model_path /path/to/model_log/singular/final_model/model.pt
   
   # Student baseline:
   python kd_eval.py --config configs/experiments/kd_7b_to_1b.yaml --model_name allenai/OLMo-2-0425-1B-SFT

@@ -1,19 +1,18 @@
 #!/bin/bash
 #SBATCH --job-name=nosft_kd_distill_13b
-#SBATCH --output=/scratch/klambert/run_logs/%x_%j.out                
-#SBATCH --error=/scratch/klambert/run_logs/%x_%j.err                                            
-#SBATCH --partition=gpubase_h100_b3
-#SBATCH --gres=gpu:h100:1
+#SBATCH --output=/scratch/$USER/run_logs/%x_%j.out
+#SBATCH --error=/scratch/$USER/run_logs/%x_%j.err
+#SBATCH --partition=<partition>
+#SBATCH --gres=gpu:1
 #SBATCH --cpus-per-task=16                                                                
 #SBATCH --mem=120GB
 #SBATCH --export=NONE
-#SBATCH --account=aip-craffel                      
+#SBATCH --account=<account>
 #SBATCH --time=1-00:00:00
 
 # Unified experiment launcher for KD/SFT/DPO pipelines (single-GPU)
-# 1 H100:        srun -c 16 --gres=gpu:h100:1 --partition=gpubase_h100_b5 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
-# 1 L40:         srun -c 1 --gres=gpu:l40s:1 --partition=gpubase_l40s_b2 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
-# CPU-only:      srun -c 16 --partition=gpubase_h100_b1 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
+# 1x GPU:       srun -c 16 --gres=gpu:1 --partition=<partition> --mem=120GB --pty --time=3:00:00 --account=<account> bash
+# CPU-only:     srun -c 16 --partition=<partition> --mem=120GB --pty --time=3:00:00 --account=<account> bash
 # Example override of run_dir:
 #   bash run_pipeline.sh configs/experiments/dpo_32b_to_1b.yaml --run-dir /tmp/my_run
 
@@ -51,8 +50,7 @@ export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
 # Load modules
 # module load gcc arrow/18.1.0
-# source /home/klambert/projects/aip-craffel/klambert/Energy/.venv/bin/activate
-source /home/klambert/projects/aip-craffel/klambert/Energy/.venv/bin/activate
+source .venv/bin/activate
 
 # Show which Python we're actually running and whether torch is visible
 echo "Python in batch job:"
