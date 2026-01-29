@@ -3,7 +3,7 @@ Distillation Energy Benchmark
 
 What this repo is
 -----------------
-Standardized, single-GPU distillation and evaluation harness that measures quality/throughput/energy trade-offs. It supports:
+Reference distillation **benchmark and evaluation protocol** aimed at the community (and our paper submission): single-GPU harness that measures quality/throughput/energy trade-offs and is intended to be cited as the standard for reporting distillation cost. It supports:
 - **Knowledge Distillation (KD)**: train students from cached teacher logits (CE + KL).
 - **Synthetic SFT**: train on teacher-generated data with optional filtering/decoding ablations.
 - **Benchmark harness**: run GSM8K, MMLU, IFEval, AlpacaEval 2, MT-Bench-101, and OLMES tasks with per-task energy tracking.
@@ -63,8 +63,18 @@ Reproducibility & logging
 - Energy tracking is on by default: GPU power via NVML, optional CPU via RAPL, CodeCarbon estimates; interval set by `energy.nvml_poll_interval_ms`.
 - W&B logging is enabled by default (project `distillation-energy-benchmark`); set `WANDB_ENTITY`/config to route logs or disable via `wandb.enabled=false`.
 
+How energy is accounted (stage-wise protocol)
+---------------------------------------------
+This harness is designed as an evaluation **standard**: total distillation energy = teacher-side work + student training + evaluation, logged as explicit stages with start/end timestamps:
+- **Prerun** — smoke test to stabilize the environment and validate logging.
+- **Teacher** — synthetic-data generation (**gen**) or logit caching (**logit**) depending on SFT or KD.
+- **Student** — the student training phase (shared across KD/SFT).
+- **Eval** — core and auxiliary evaluation suites for quality metrics.
+
+For each stage we log wall-clock time, token counts, and energy, then aggregate into stage-wise and pipeline totals. These numbers are meant for accurate, reproducible reporting and for cost/quality Pareto frontiers in the paper and future work.
+
 Artifacts
------------------
+---------
 - Merged config used for the run.
 - Environment snapshot (hardware + software).
 - Energy logs: stage summaries under `logs/stages/`, CodeCarbon CSVs under `logs/codecarbon/`, and run-level `experiment_summary.json` or `benchmark_summary.json`.
