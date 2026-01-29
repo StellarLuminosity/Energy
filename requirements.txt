@@ -1,3 +1,4 @@
+## Core (install via: pip install -e .)
 torch==2.6.0
 transformers==4.51.3
 datasets>=2.14.0
@@ -24,7 +25,7 @@ xxhash==3.5.0
 yarl==1.20.0
 wandb
 
-# Optional evaluation extras (install with: pip install -e .[eval])
+## Optional evaluation extras (install via: pip install -e .[eval])
 # lm-eval==0.4.2
 # alpaca_eval==0.4.7
 # jsonlines>=4.0.0
