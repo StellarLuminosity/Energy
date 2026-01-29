@@ -1,49 +1,77 @@
-Energy
 Distillation Energy Benchmark
-================================
+=============================
 
-This repo runs standardized distillation experiments and measures the energy/quality/throughput trade-offs. It compares three pipelines: knowledge distillation (KD, teacher logits), and synthetic data SFT (teacher generations) with consistent hardware, token budgets, and logging. Teacher-side costs (generation, judging, evaluation) are included so you can see the full energy bill.
+What this repo is
+-----------------
+Standardized, single-GPU distillation and evaluation harness that measures quality/throughput/energy trade-offs. It supports:
+- **Knowledge Distillation (KD)**: train students from cached teacher logits (CE + KL).
+- **Synthetic SFT**: train on teacher-generated data with optional filtering/decoding ablations.
+- **Benchmark harness**: run GSM8K, MMLU, IFEval, AlpacaEval 2, MT-Bench-101, and OLMES tasks with per-task energy tracking.
 
-Pipelines at a glance
----------------------
-- Knowledge Distillation (KD): cache teacher logits over a fixed corpus, then train the student with CE + KL loss (temperature τ, weight α).
-- Data / Sequence Distillation (Synthetic SFT): teacher generates responses or CoT traces; students train with standard SFT on the synthetic set, with optional filtering and decoding ablations.
-- Optional self-distillation: treat a previous student checkpoint as the teacher and compare against straight additional training.
+Key structure (where things live)
+---------------------------------
+- `run_experiment.py`: one entrypoint; chooses KD/SFT or a data/benchmark script via `--data-script`.
+- `configs/base.yaml`: fixed defaults (seed, token budget, optimizer, energy logging, dataset paths).
+- `configs/experiments/*.yaml`: per-run overrides (pipeline type, teacher/student, output dirs, benchmark defaults).
+- `distill_bench/pipelines/`: training loops (`kd_main.py`, `sft_main.py`).
+- `distill_bench/data/`: data + benchmark scripts (`logit_caching`, `synthetic_generation`, `olmo_benchmark`, etc.).
+- `distill_bench/core/`: utilities (energy logger, environment capture, config loader, trainer abstractions).
+- `logs/` (or `--run-dir`): run artifacts (configs, checkpoints, metrics, energy traces).
 
-Project layout
---------------
-- run_experiment.py: dispatches to KD/SFT pipelines or data-only scripts via `--data-script`.
-- run_pipeline.sh: SLURM batch wrapper (single-GPU defaults) that activates the venv and launches `run_experiment.py`.
-- configs/base.yaml: fixed settings for fair comparison (seed, token budget, optimizer, energy logging defaults, datasets).
-- configs/experiments/*.yaml: per-run overrides for KD/SFT (teacher/student models, beta/alpha/temperature, output dirs).
-- distill_bench/pipelines/: main training loops for kd_main.py, sft_main.py.
-- distill_bench/data/: preprocessing and generation scripts (logit caching, synthetic generation, preference dataset, Tulu/Codeforces/OpenR1 preprocess).
-- distill_bench/core/: shared utilities (energy_logger.py, environment capture, trainer abstractions, config loader).
-- logs/: default run_dir where stage outputs, codecarbon CSVs, and summaries are written.
+Requirements
+------------
+- Python 3.10+ and a GPU with recent NVIDIA drivers (NVML needed for energy logging).
+- `torch` with CUDA matching your driver.
+- Datasets and model checkpoints must be reachable; default paths in `configs/base.yaml` use `/scratch/...` placeholders—override them for your environment.
 
-Quickstart (launch & more detail in LAUNCH_GUIDE.md)
-----------------------------------------------------
-- SLURM batch: `sbatch run_pipeline.sh configs/experiments/kd_32b_to_1b.yaml` (optionally add `--data-script logit_caching` or other data steps first).
-- Interactive: `python run_experiment.py --config configs/experiments/sft_32b_to_7b.yaml [--data-script synthetic_generation] [--run-dir /scratch/you/run123]`.
-- Data scripts: pass `--data-script` for preprocessing or generation (`logit_caching`, `tulu_preprocess_dataset`, `codeforces_preprocess_dataset`, `openr1_math_preprocess_dataset`, `synthetic_generation`, `preference_dataset`, `prerun`).
-- Run order guidance, partitions, and output paths are in LAUNCH_GUIDE.md.
+Setup
+-----
+```bash
+python -m venv .venv && source .venv/bin/activate
+pip install --upgrade pip
+# Core deps
+pip install -e .
+# Optional eval extras (lm-eval-harness, alpaca_eval, mt-bench-101, jsonlines)
+pip install -e .[eval]
+```
 
-Datasets and models
--------------------
-- Datasets (see configs/base.yaml): Tulu-3 SFT mixture (default), Codeforces COTS, OpenR1-Math; preprocessed paths are referenced in configs.
-- Models: teacher ~13B (and optional larger judge/teacher); students at ~1B, ~7B, ~13B; tokenizer defaults come from the student model unless overridden.
-- Hardware regimes: single-GPU SLURM presets for H100 or L40S, with optional power caps if you want comparability across regimes.
+Quickstart (local GPU)
+----------------------
+- KD train: `python run_experiment.py --config configs/experiments/kd_32b_to_1b.yaml --run-dir /tmp/kd_run`
+- SFT train: `python run_experiment.py --config configs/experiments/sft_32b_to_7b.yaml --run-dir /tmp/sft_run`
+- Data-only preprocessing/generation: add `--data-script logit_caching` (or `tulu_preprocess_dataset`, `codeforces_preprocess_dataset`, `openr1_math_preprocess_dataset`, `synthetic_generation`, `preference_dataset`, `prerun`).
 
-What is tracked (energy + metrics)
-----------------------------------
-- Energy tracking: NVML polling for GPU power, optional RAPL for CPU, plus CodeCarbon for CO₂/energy estimates; sampling interval set in configs/base.yaml.
-- Stage metrics: per-stage kWh/J, average/peak power, tokens/sec, tokens processed; total energy policy selectable (measured/codecarbon/gpu_only).
-- Experiment metadata: seeds, hyperparameters, hardware snapshot (GPU/CPU details, software versions), and W&B logging to project `distillation-energy-benchmark` if enabled.
+Benchmark-only harness
+----------------------
+Evaluate a model or checkpoint without training:
+```bash
+# List tasks without running
+python distill_bench/data/olmo_benchmark.py --config configs/experiments/eval_olmo2_1b.yaml --tasks list --run-dir /tmp/bench --dry-run
 
-What is saved
--------------
-- Configs: the merged config used for the run plus any overrides; one config file per run in the run_dir.
-- Environment snapshot: hardware/software metadata saved alongside runs (see distill_bench/core/environment.py).
-- Energy logs: stage JSON summaries under `logs/stages/`, CodeCarbon CSVs under `logs/codecarbon/`, and `experiment_summary.json` per run.
-- Models and checkpoints: periodic checkpoints and final student outputs under the run’s output_dir (`final_model/` or `final_policy/`); KD stores `model.pt` plus HF format.
-- Outputs directory: defaults to `logs/` unless overridden via `--run-dir` or `output.output_dir` in the experiment config.
+# Run a small subset
+python distill_bench/data/olmo_benchmark.py \
+  --config configs/experiments/eval_olmo2_1b.yaml \
+  --tasks gsm8k,mmlu,alpaca_eval \
+  --max-samples 2 \
+  --run-dir /tmp/bench_run
+```
+`benchmark.model` in the config can be a HF model id, a local HF directory, or a checkpoint file (it will be auto-converted). Outputs land under the chosen `--run-dir` with per-task JSON plus `benchmark_summary.json`.
+
+Reproducibility & logging
+-------------------------
+- Seeds are fixed in `configs/base.yaml` (default 42); override per-experiment if needed.
+- Energy tracking is on by default: GPU power via NVML, optional CPU via RAPL, CodeCarbon estimates; interval set by `energy.nvml_poll_interval_ms`.
+- W&B logging is enabled by default (project `distillation-energy-benchmark`); set `WANDB_ENTITY`/config to route logs or disable via `wandb.enabled=false`.
+
+Artifacts
+-----------------
+- Merged config used for the run.
+- Environment snapshot (hardware + software).
+- Energy logs: stage summaries under `logs/stages/`, CodeCarbon CSVs under `logs/codecarbon/`, and run-level `experiment_summary.json` or `benchmark_summary.json`.
+- Checkpoints: periodic + final student outputs (`final_model/` or `final_policy/`); KD stores both raw and HF-formatted weights when available.
+
+Limitations / tips
+------------------
+- Default dataset and output paths assume the AIP cluster; change them for your filesystem.
+- Large benchmarks can be slow; use `--max-samples` and `--tasks` to smoke-test first.
+- If energy tracking fails (e.g., no NVML), set `energy.enabled=false` to avoid interruptions.
