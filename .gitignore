@@ -13,13 +13,8 @@ run_script.sh
 scripts/
 tmp/
 prerun_validation/
-rebuild_teacher_logprobs.py
 wandb/
-run_pipeline.sh
-configs/*
-notAGENTSnot.md
 benchmark_view.ipynb
-run_kd_32b_to_1b_t2.sh
 killarney_logs/
 off_logs/
 runpod_logs/
