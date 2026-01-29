@@ -3,12 +3,22 @@ Distillation Energy Benchmark
 
 What this repo is
 -----------------
-Reference distillation **benchmark and evaluation protocol** aimed at the community (and our paper submission): single-GPU harness that measures quality/throughput/energy trade-offs and is intended to be cited as the standard for reporting distillation cost. It supports:
+Reference distillation **benchmark and evaluation protocol** harness that measures quality/throughput/energy trade-offs and is intended to be cited as the standard for reporting distillation cost. It supports:
 - **Knowledge Distillation (KD)**: train students from cached teacher logits (CE + KL).
 - **Synthetic SFT**: train on teacher-generated data with optional filtering/decoding ablations.
 - **Benchmark harness**: run GSM8K, MMLU, IFEval, AlpacaEval 2, MT-Bench-101, and OLMES tasks with per-task energy tracking.
 
-Key structure (where things live)
+How energy is accounted (stage-wise protocol)
+---------------------------------------------
+This harness is designed as an evaluation **standard**: total distillation energy = teacher-side work + student training + evaluation, logged as explicit stages with start/end timestamps:
+- **Prerun** — smoke test to stabilize the environment and validate logging.
+- **Teacher** — synthetic-data generation (**gen**) or logit caching (**logit**) depending on SFT or KD.
+- **Student** — the student training phase (shared across KD/SFT).
+- **Eval** — core and auxiliary evaluation suites for quality metrics.
+
+For each stage the wall-clock time, token counts, and energy, are logged, then aggregated into stage-wise and pipeline totals.
+
+Key structure
 ---------------------------------
 - `run_experiment.py`: one entrypoint; chooses KD/SFT or a data/benchmark script via `--data-script`.
 - `configs/base.yaml`: fixed defaults (seed, token budget, optimizer, energy logging, dataset paths).
@@ -62,16 +72,6 @@ Reproducibility & logging
 - Seeds are fixed in `configs/base.yaml` (default 42); override per-experiment if needed.
 - Energy tracking is on by default: GPU power via NVML, optional CPU via RAPL, CodeCarbon estimates; interval set by `energy.nvml_poll_interval_ms`.
 - W&B logging is enabled by default (project `distillation-energy-benchmark`); set `WANDB_ENTITY`/config to route logs or disable via `wandb.enabled=false`.
-
-How energy is accounted (stage-wise protocol)
----------------------------------------------
-This harness is designed as an evaluation **standard**: total distillation energy = teacher-side work + student training + evaluation, logged as explicit stages with start/end timestamps:
-- **Prerun** — smoke test to stabilize the environment and validate logging.
-- **Teacher** — synthetic-data generation (**gen**) or logit caching (**logit**) depending on SFT or KD.
-- **Student** — the student training phase (shared across KD/SFT).
-- **Eval** — core and auxiliary evaluation suites for quality metrics.
-
-For each stage we log wall-clock time, token counts, and energy, then aggregate into stage-wise and pipeline totals. These numbers are meant for accurate, reproducible reporting and for cost/quality Pareto frontiers in the paper and future work.
 
 Artifacts
 ---------
