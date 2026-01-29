@@ -1,24 +1,28 @@
 #!/bin/bash
-#SBATCH --job-name=sft_true
+#SBATCH --job-name=benchmark
 #SBATCH --output=/scratch/klambert/run_logs/%x_%j.out                
 #SBATCH --error=/scratch/klambert/run_logs/%x_%j.err                                            
-#SBATCH --partition=gpubase_h100_b3
+#SBATCH --partition=gpubase_h100_b2
 #SBATCH --gres=gpu:h100:1
-#SBATCH --cpus-per-task=16                                                                   
+#SBATCH --cpus-per-task=16                                                               
 #SBATCH --mem=120GB
 #SBATCH --export=NONE
-#SBATCH --account=aip-craffel             
-#SBATCH --time=5:00:00
+#SBATCH --account=aip-craffel  
+#SBATCH --exclude=kn174                                  
+#SBATCH --time=12:00:00
 
 # Unified experiment launcher for KD/SFT/DPO pipelines (single-GPU)
-# 1 H100:        srun -c 16 --gres=gpu:h100:1 --partition=gpubase_h100_b5 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
+# 1 H100:        srun -c 16 --gres=gpu:h100:1 --partition=gpubase_h100_b1 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
 # 1 L40:         srun -c 1 --gres=gpu:l40s:1 --partition=gpubase_l40s_b2 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
 # CPU-only:      srun -c 16 --partition=gpubase_h100_b1 --mem=120GB --pty --time=3:00:00 --account=aip-craffel bash
 # Example override of run_dir:
 #   bash run_pipeline.sh configs/experiments/dpo_32b_to_1b.yaml --run-dir /tmp/my_run
 
+set -e
+set -x
+
 # Get config path and extra args
-CONFIG_PATH=${1:-"configs/experiments/sft_32b_to_1b.yaml"}
+CONFIG_PATH=${1:-"configs/experiments/kd_32b_to_1b.yaml"}
 EXTRA_ARGS="${@:2}"
 
 echo "==============================================="
@@ -43,27 +47,13 @@ export MKL_NUM_THREADS="$OMP_NUM_THREADS"
 export OPENBLAS_NUM_THREADS="$OMP_NUM_THREADS"
 export NUMEXPR_NUM_THREADS="$OMP_NUM_THREADS"
 
-# Huggingface Settings:
-export HF_HOME=/scratch/klambert/hf_cache
-export HF_DATASETS_OFFLINE=1
-export HF_HUB_OFFLINE=1
-export TRANSFORMERS_OFFLINE=1
-
 # Memory optimization
 export PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True
 
-# wandb settings
-export WANDB_MODE=offline
-export WANDB_DIR=$SCRATCH/wandb
-export WANDB_CACHE_DIR=$SCRATCH/.cache/wandb
-export WANDB_CONFIG_DIR=$SCRATCH/.config/wandb
-mkdir -p "$WANDB_DIR" "$WANDB_CACHE_DIR" "$WANDB_CONFIG_DIR"
-export WANDB_PROJECT="${WANDB_PROJECT:-$SLURM_JOB_NAME}"
-
 # Load modules
-module load StdEnv/2023
-module load gcc python/3.11 arrow/21
-source /home/klambert/.venv/bin/activate
+# module load gcc arrow/18.1.0
+# source /home/klambert/projects/aip-craffel/klambert/Energy/.venv/bin/activate
+source /project/6104653/klambert/Energy/.venv/bin/activate
 
 # Show which Python we're actually running and whether torch is visible
 echo "Python in batch job:"
