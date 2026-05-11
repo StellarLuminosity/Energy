@@ -3,7 +3,7 @@ Distillation Energy Benchmark
 
 What this repo is
 -----------------
-Reference distillation **benchmark and evaluation protocol** harness that measures quality/throughput/energy trade-offs and is intended to be cited as the standard for reporting distillation cost. It supports:
+Reference energy **benchmark and evaluation protocol** harness, applied to distillation, that measures quality/throughput/energy trade-offs and is intended to be cited as the standard for reporting distillation cost. It supports:
 - **Knowledge Distillation (KD)**: train students from cached teacher logits (CE + KL).
 - **Synthetic SFT**: train on teacher-generated data with optional filtering/decoding ablations.
 - **Benchmark harness**: run GSM8K, MMLU, IFEval, AlpacaEval 2, MT-Bench-101, and OLMES tasks with per-task energy tracking.
