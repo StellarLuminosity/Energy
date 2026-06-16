@@ -1,6 +1,6 @@
 # ⚡ ML Energy Harness
 
-**Stage-wise GPU + CPU + Carbon tracking for any machine learning workload**
+**Stage-wise GPU + CPU + Carbon tracking for machine learning workloads**
 
 [![Paper](https://img.shields.io/badge/ICML%202026-Paper-blue)](https://arxiv.org/abs/2605.13981)
 [![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
