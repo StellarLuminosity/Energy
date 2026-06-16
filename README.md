@@ -1,87 +1,215 @@
-Distillation Energy Benchmark
-=============================
+# ⚡ ML Energy Harness
 
-What this repo is
------------------
-Reference energy **benchmark and evaluation protocol** harness, applied to distillation, that measures quality/throughput/energy trade-offs and is intended to be cited as the standard for reporting distillation cost. It supports:
-- **Knowledge Distillation (KD)**: train students from cached teacher logits (CE + KL).
-- **Synthetic SFT**: train on teacher-generated data with optional filtering/decoding ablations.
-- **Benchmark harness**: run GSM8K, MMLU, IFEval, AlpacaEval 2, MT-Bench-101, and OLMES tasks with per-task energy tracking.
+**Stage-wise GPU + CPU + Carbon tracking for any machine learning workload**
 
-How energy is accounted (stage-wise protocol)
----------------------------------------------
-This harness is designed as an evaluation **standard**: total distillation energy = teacher-side work + student training + evaluation, logged as explicit stages with start/end timestamps:
-- **Prerun** — smoke test to stabilize the environment and validate logging.
-- **Teacher** — synthetic-data generation (**gen**) or logit caching (**logit**) depending on SFT or KD.
-- **Student** — the student training phase (shared across KD/SFT).
-- **Eval** — core and auxiliary evaluation suites for quality metrics.
+[![Paper](https://img.shields.io/badge/ICML%202026-Paper-blue)](https://arxiv.org/abs/2605.13981)
+[![License](https://img.shields.io/badge/License-Apache%202.0-green)](LICENSE)
+[![Python](https://img.shields.io/badge/Python-3.10%2B-yellow)](https://www.python.org/)
+[![NVML](https://img.shields.io/badge/GPU%20Telemetry-NVML-76b900)](https://developer.nvidia.com/management-library-nvml)
 
-For each stage the wall-clock time, token counts, and energy, are logged, then aggregated into stage-wise and pipeline totals.
+---
 
-Key structure
----------------------------------
-- `run_experiment.py`: one entrypoint; chooses KD/SFT or a data/benchmark script via `--data-script`.
-- `configs/base.yaml`: fixed defaults (seed, token budget, optimizer, energy logging, dataset paths).
-- `configs/experiments/*.yaml`: per-run overrides (pipeline type, teacher/student, output dirs, benchmark defaults).
-- `distill_bench/pipelines/`: training loops (`kd_main.py`, `sft_main.py`).
-- `distill_bench/data/`: data + benchmark scripts (`logit_caching`, `synthetic_generation`, `olmo_benchmark`, etc.).
-- `distill_bench/core/`: utilities (energy logger, environment capture, config loader, trainer abstractions).
-- `logs/` (or `--run-dir`): run artifacts (configs, checkpoints, metrics, energy traces).
+Most energy benchmarks for ML are incomplete. They count student training and call it done, but don't pay attention to teacher inference for distillation, the data generation side, and evaluation. **This harness measures everything.**
 
-Requirements
-------------
-- Python 3.10+ and a GPU with recent NVIDIA drivers (NVML needed for energy logging).
-- `torch` with CUDA matching your driver.
-- Datasets and model checkpoints must be reachable; default paths in `configs/base.yaml` use `/scratch/...` placeholders—override them for your environment.
+`distill_bench/core/energy_logger.py` is a drop-in energy tracking interface that combines:
 
-Setup
------
+- **NVML** — real-time GPU power telemetry sampled every 0.5 s, integrated to kWh
+- **CodeCarbon / RAPL** — CPU energy estimation in process-tracking mode
+- **CO₂e** — carbon estimates derived from regional grid intensity and PUE
+- **Stage-wise protocol** — explicit start/end timestamps per pipeline stage so you know *where* the energy actually goes
+
+Built for the [ICML 2026 paper](https://arxiv.org/abs/2605.13981) on end-to-end distillation energy accounting. Also works on any ML training or inference workload
+
+---
+
+## What gets measured
+
+Each run is decomposed into disjoint stages with explicit timestamps:
+
+| Stage | What it covers |
+|---|---|
+| `prerun` | Environment stabilization and smoke test; validates logging before any real work |
+| `teacher` | Teacher-side compute — synthetic data generation (`gen`) or logit caching (`logit`) |
+| `student` | Student training (SFT, KD, or synthetic SFT) |
+| `eval` | Benchmark evaluation suite (GSM8K, MMLU, IFEval, AlpacaEval 2, MT-Bench-101) |
+
+For each stage the logger records wall-clock time, tokens processed, GPU energy (kWh), CPU energy, and derived CO₂e. Outputs are aggregated into stage-wise summaries and a full pipeline total.
+
+---
+## Repository structure
+
+```
+Energy/
+├── run_experiment.py           # Single entrypoint for all pipelines and data scripts
+├── configs/
+│   ├── base.yaml               # Fixed defaults: seed, optimizer, energy logging
+│   └── experiments/            # Per-run overrides (pipeline, teacher/student, paths)
+├── distill_bench/
+│   ├── core/
+│   │   └── energy_logger.py    # ← Energy tracking interface (NVML + CPU + CO₂e)
+│   ├── pipelines/
+│   │   ├── kd_main.py          # KD training loop
+│   │   └── sft_main.py         # SFT / synthetic SFT training loop
+│   └── data/                   # Data, preprocessing, and benchmark scripts
+├── run_kd_32b_to_{1b,7b,13b}.sh
+├── run_sft_32b_to_{1b,7b,13b}.sh
+├── run_pipeline.sh
+└── LAUNCH_GUIDE.md             # Quick reference for cluster launch commands
+```
+
+---
+
+## Setup
+
 ```bash
+git clone https://github.com/StellarLuminosity/Energy.git
+cd Energy
+
 python -m venv .venv && source .venv/bin/activate
 pip install --upgrade pip
-# Core deps
 pip install -e .
-# Optional eval extras (lm-eval-harness, alpaca_eval, mt-bench-101, jsonlines)
+
+# Optional: evaluation extras (lm-eval-harness, alpaca_eval, mt-bench-101)
 pip install -e .[eval]
 ```
 
-Quickstart (local GPU)
-----------------------
-- KD train: `python run_experiment.py --config configs/experiments/kd_32b_to_1b.yaml --run-dir /tmp/kd_run`
-- SFT train: `python run_experiment.py --config configs/experiments/sft_32b_to_7b.yaml --run-dir /tmp/sft_run`
-- Data-only preprocessing/generation: add `--data-script logit_caching` (or `tulu_preprocess_dataset`, `codeforces_preprocess_dataset`, `openr1_math_preprocess_dataset`, `synthetic_generation`, `preference_dataset`, `prerun`).
+**Requirements:**
+- Python 3.10+
+- NVIDIA GPU with recent drivers (NVML required for energy logging)
+- PyTorch with CUDA matching your driver
+- Dataset and model paths - defaults in `configs/base.yaml` use `/scratch/...` placeholders; override for your filesystem
 
-Benchmark-only harness
-----------------------
-Evaluate a model or checkpoint without training:
+---
+
+## Running the energy harness
+
+### Smoke test (validate logging first)
+
 ```bash
-# List tasks without running
-python distill_bench/data/olmo_benchmark.py --config configs/experiments/eval_olmo2_1b.yaml --tasks list --run-dir /tmp/bench --dry-run
+python run_experiment.py \
+  --config configs/experiments/sft_32b_to_1b.yaml \
+  --data-script prerun \
+  --run-dir /tmp/prerun_test
+```
 
-# Run a small subset
+This stabilizes the GPU environment and confirms NVML is reading correctly before any real workload.
+
+### Preprocessing / data scripts
+
+```bash
+# Instruction following (Tulu)
+python run_experiment.py --config configs/experiments/sft_32b_to_1b.yaml \
+  --data-script tulu_preprocess_dataset
+
+# Math (OpenR1)
+python run_experiment.py --config configs/experiments/sft_32b_to_7b.yaml \
+  --data-script openr1_math_preprocess_dataset
+
+# Code (Codeforces)
+python run_experiment.py --config configs/experiments/sft_32b_to_13b.yaml \
+  --data-script codeforces_preprocess_dataset
+
+# Generate teacher logits (KD)
+python run_experiment.py --config configs/experiments/kd_32b_to_1b.yaml \
+  --data-script logit_caching
+
+# Generate synthetic data (synthetic SFT)
+python run_experiment.py --config configs/experiments/sft_32b_to_1b.yaml \
+  --data-script synthetic_generation
+```
+
+### Training
+
+**Knowledge Distillation (KD):**
+
+```bash
+# 1B student
+python run_experiment.py --config configs/experiments/kd_32b_to_1b.yaml \
+  --run-dir /your/output/kd_1b
+
+# 7B student
+python run_experiment.py --config configs/experiments/kd_32b_to_7b.yaml \
+  --run-dir /your/output/kd_7b
+
+# 13B student
+python run_experiment.py --config configs/experiments/kd_32b_to_13b.yaml \
+  --run-dir /your/output/kd_13b
+```
+
+**Supervised Fine-Tuning (baseline or synthetic):**
+
+```bash
+# Plain SFT — 1B / 7B / 13B
+python run_experiment.py --config configs/experiments/sft_32b_to_1b.yaml --run-dir /your/output/sft_1b
+python run_experiment.py --config configs/experiments/sft_32b_to_7b.yaml --run-dir /your/output/sft_7b
+python run_experiment.py --config configs/experiments/sft_32b_to_13b.yaml --run-dir /your/output/sft_13b
+
+# Synthetic SFT (generate then train)
+python run_experiment.py --config configs/experiments/sft_32b_to_7b.yaml \
+  --data-script synthetic_generation --run-dir /your/output/synth_7b
+```
+
+### Benchmark evaluation (energy-tracked)
+
+Evaluate any model or checkpoint with full energy accounting across GSM8K, MMLU, IFEval, AlpacaEval 2, and MT-Bench-101:
+
+```bash
+# Dry run — list available tasks without executing
+python distill_bench/data/olmo_benchmark.py \
+  --config configs/experiments/eval_olmo2_1b.yaml \
+  --tasks list --run-dir /tmp/bench --dry-run
+
+# Run a smoke-test subset
 python distill_bench/data/olmo_benchmark.py \
   --config configs/experiments/eval_olmo2_1b.yaml \
   --tasks gsm8k,mmlu,alpaca_eval \
   --max-samples 2 \
   --run-dir /tmp/bench_run
+
+# Full evaluation — 7B
+python run_experiment.py \
+  --config configs/experiments/kd_32b_to_7b.yaml \
+  --data-script olmo_benchmark \
+  --run-dir /your/output/eval_7b
 ```
-`benchmark.model` in the config can be a HF model id, a local HF directory, or a checkpoint file (it will be auto-converted). Outputs land under the chosen `--run-dir` with per-task JSON plus `benchmark_summary.json`.
 
-Reproducibility & logging
--------------------------
-- Seeds are fixed in `configs/base.yaml` (default 42); override per-experiment if needed.
-- Energy tracking is on by default: GPU power via NVML, optional CPU via RAPL, CodeCarbon estimates; interval set by `energy.nvml_poll_interval_ms`.
-- W&B logging is enabled by default (project `distillation-energy-benchmark`); set `WANDB_ENTITY`/config to route logs or disable via `wandb.enabled=false`.
+`benchmark.model` in the config accepts a HuggingFace model ID, a local HF directory, or a checkpoint file (auto-converted). Results are under `--run-dir` as per-task JSON files `benchmark_summary.json`.
 
-Artifacts
----------
-- Merged config used for the run.
-- Environment snapshot (hardware + software).
-- Energy logs: stage summaries under `logs/stages/`, CodeCarbon CSVs under `logs/codecarbon/`, and run-level `experiment_summary.json` or `benchmark_summary.json`.
-- Checkpoints: periodic + final student outputs (`final_model/` or `final_policy/`); KD stores both raw and HF-formatted weights when available.
+---
 
-Limitations / tips
-------------------
-- Default dataset and output paths assume the AIP cluster; change them for your filesystem.
-- Large benchmarks can be slow; use `--max-samples` and `--tasks` to smoke-test first.
-- If energy tracking fails (e.g., no NVML), set `energy.enabled=false` to avoid interruptions.
+## Output artifacts
+
+Every run produces a self-contained log directory:
+
+```
+run-dir/
+├── config_merged.yaml          # Exact config used (reproducibility)
+├── environment_snapshot.json   # Hardware + software versions
+├── experiment_summary.json     # Top-level energy and quality totals
+├── logs/
+│   ├── stages/                 # Per-stage energy summaries (kWh, J/tok, wall time)
+│   └── codecarbon/             # CodeCarbon CSV files for CPU + CO₂e
+└── checkpoints/
+    ├── final_model/            # HF-formatted student weights
+    └── final_policy/           # Raw weights (KD runs also store intermediate)
+```
+
+---
+
+## Citation
+
+If you use this harness or the accounting protocol, please cite:
+
+```bibtex
+@inproceedings{lambert2026distillation,
+  title     = {Towards Resource-Efficient {LLM}s: End-to-End Energy Accounting of Distillation Pipelines},
+  author    = {Lambert, Katherine and Luccioni, Sasha},
+  booktitle = {Proceedings of the 43rd International Conference on Machine Learning},
+  series    = {Proceedings of Machine Learning Research},
+  volume    = {306},
+  year      = {2026},
+  address   = {Seoul, South Korea},
+  publisher = {PMLR},
+  url       = {https://arxiv.org/abs/2605.13981}
+}
+```
